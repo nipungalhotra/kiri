@@ -31,6 +31,8 @@ final class ClaudeRunner {
     Available: open_app {name}; open_url {url}; reminder {title, due} where due is local ISO 8601 \
     like 2026-11-22T10:00 (optional); focus {on: true or false}; organize_folder {folder} where folder is \
     "Downloads", "Desktop" or an absolute path (sorts loose files into subfolders by type). \
+    point {x, y, label}: when a screenshot is attached and the user asks where or how to click something, \
+    point at it on their screen: x and y are pixel coordinates in the screenshot image, label is 1 to 4 words. \
     Never use shell commands for these. Kiri asks the user before anything risky, so just request the action \
     and tell the user briefly what you asked Kiri to do. \
     If a tool call is blocked for permission, don't explain settings: just say "Kiri will ask you to allow it" in one short line.
@@ -115,6 +117,37 @@ final class ClaudeRunner {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// One quick question with no tools and no chat history (e.g. "write a commit message").
+    /// Calls back on the main thread with Claude's answer, or nil if it failed.
+    static func quick(_ prompt: String, cwd: URL, completion: @escaping @MainActor (String?) -> Void) {
+        guard let exe = claudePath else { DispatchQueue.main.async { completion(nil) }; return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: exe)
+            var args = ["-p", prompt, "--output-format", "json", "--permission-mode", "default",
+                        "--disallowedTools", "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch"]
+            if shouldSkipUserSettings() { args += ["--setting-sources", "project,local"] }
+            p.arguments = args
+            p.currentDirectoryURL = cwd
+            p.environment = environment
+            p.standardInput = FileHandle.nullDevice
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            var answer: String?
+            if (try? p.run()) != nil {
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                p.waitUntilExit()
+                if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   (obj["is_error"] as? Bool) != true, let r = obj["result"] as? String {
+                    answer = r.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            Log.write("claude quick -> \(answer == nil ? "failed" : "ok")")
+            DispatchQueue.main.async { completion(answer) }
+        }
     }
 
     var isRunning: Bool { process?.isRunning ?? false }

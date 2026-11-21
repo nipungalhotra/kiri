@@ -136,6 +136,12 @@ struct OwlFrame: View {
             .offset(y: -18 + jump)
 
             props(accent)
+            if PetSignals.shared.quiet && mood != .thinking {
+                Text("🤫 Focus").font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(Capsule().fill(Color(red: 0.36, green: 0.22, blue: 0.6).opacity(0.9)))
+                    .offset(x: -62, y: -200)
+            }
         }
         .frame(width: Self.size.width, height: Self.size.height, alignment: .bottom)
     }
@@ -153,6 +159,7 @@ struct OwlFrame: View {
         furLid(img, OwlArt.leftEye, in: size, tilt: mood == .sad ? -14 : 0)
         furLid(img, OwlArt.rightEye, in: size, tilt: mood == .sad ? 14 : 0)
         if Voice.shared.isSpeaking || previewTalking { talkingBeak(in: size) }
+        OwlAccessories(worn: Evolution.shared.worn, size: size)
     }
 
     /// Where the eyes point, -1...1 on each axis (y down).

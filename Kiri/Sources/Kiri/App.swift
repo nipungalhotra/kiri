@@ -126,8 +126,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Run Tests", #selector(runTests))
         add("Choose Project…", #selector(chooseProject))
         add("What's on My Screen?", #selector(askScreen))
-        add("Set Up Terminal Watching…", #selector(terminalSetup))
+        add("Commit My Changes…", #selector(commit))
+        add("Daily Brief", #selector(brief))
+        add("Explain What I Copied", #selector(explainClipboard))
+        add("Hoot's Achievements", #selector(achievements))
+        let cmdItem = menu.addItem(withTitle: "My Commands", action: nil, keyEquivalent: "")
+        cmdItem.submenu = commandsMenu
+        commandsMenu.delegate = self
         menu.addItem(.separator())
+        add("Set Up Terminal Watching…", #selector(terminalSetup))
+        add("Setup Check…", #selector(showSetup))
+        updateItem = menu.addItem(withTitle: "Check for Updates…", action: #selector(checkUpdatesClicked), keyEquivalent: "")
+        updateItem?.target = self
+        menu.addItem(.separator())
+        let optItem = menu.addItem(withTitle: "Options", action: nil, keyEquivalent: "")
+        optItem.submenu = optionsMenu
+        optionsMenu.delegate = self
+        let buddyItem = menu.addItem(withTitle: "Buddy Pet", action: nil, keyEquivalent: "")
+        buddyItem.submenu = buddyMenu
+        buddyMenu.delegate = self
         let voiceItem = menu.addItem(withTitle: "Voice", action: nil, keyEquivalent: "")
         voiceItem.submenu = voiceMenu
         voiceMenu.delegate = self
@@ -144,7 +161,124 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hotKey = GlobalHotKey()
         GlobalHotKey.onPress = { [weak self] in self?.hotKeyPressed() }
+        state.onBuddyEvent = { [weak self] e in self?.buddy?.react(e) }
+        applyBuddy()
         state.greet()
+        setup.showIfNeeded(state: state)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkUpdates(quietly: true) }
+        Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkUpdates(quietly: true) }
+        }
+    }
+
+    // MARK: Setup, updates, buddy, extra menus
+
+    private let setup = SetupWindow()
+    private var updateItem: NSMenuItem?
+    private let commandsMenu = NSMenu()
+    private let optionsMenu = NSMenu()
+    private let buddyMenu = NSMenu()
+    private var buddy: BuddyController?
+
+    @objc private func showSetup() { setup.show(state: state) }
+    @objc private func commit() { showPet(); state.chatOpen = true; state.commitChanges() }
+    @objc private func brief() { showPet(); state.dailyBrief() }
+    @objc private func explainClipboard() { showPet(); state.explainClipboard() }
+    @objc private func achievements() { showPet(); state.showAchievements() }
+    private func showPet() { if let n = notchController { n.show() } else { controller.show() } }
+
+    @objc private func checkUpdatesClicked() { checkUpdates(quietly: false) }
+    private func checkUpdates(quietly: Bool) {
+        if let a = Updates.available, !quietly { NSWorkspace.shared.open(a.url); return }
+        let found: @MainActor (String, URL) -> Void = { [weak self] version, url in
+            guard let self else { return }
+            self.updateItem?.title = "Update to Kiri \(version)…"
+            if !self.state.quiet { self.state.say("Kiri \(version) is out! 🦉 → Update to get it ✨", for: 10) }
+            if !quietly { NSWorkspace.shared.open(url) }
+        }
+        let latest: @MainActor () -> Void = { [weak self] in
+            self?.state.say("You have the latest Kiri (\(Updates.current)) ✅", for: 4)
+        }
+        Updates.check(force: !quietly, found: found, upToDate: quietly ? nil : latest)
+    }
+
+    private var buddyStyle: CharacterStyle? {
+        UserDefaults.standard.string(forKey: "buddyStyle").flatMap(CharacterStyle.init(rawValue:))
+    }
+
+    /// The buddy only lives next to the desktop owl (not in the notch).
+    private func applyBuddy() {
+        buddy?.close()
+        buddy = nil
+        guard let style = buddyStyle, notchController == nil, controller.isVisible else { return }
+        buddy = BuddyController(style: style, owlPanel: controller.panel, pet: state)
+    }
+
+    @objc private func pickBuddy(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.representedObject as? String, forKey: "buddyStyle")
+        applyBuddy()
+    }
+
+    @objc private func runCommand(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String, let c = CustomCommands.all().first(where: { $0.name == name }) else { return }
+        showPet()
+        state.chatOpen = true
+        state.note("▶︎ \(name)")
+        state.runCustom(c)
+    }
+    @objc private func openCommandsFolder() {
+        CustomCommands.prepareFolder()
+        NSWorkspace.shared.open(CustomCommands.folder)
+    }
+
+    @objc private func toggleOption(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        switch key {
+        case "quiet": state.quiet.toggle()
+        case "showAccessories": Evolution.shared.showAccessories.toggle()
+        default:
+            let d = UserDefaults.standard
+            d.set(!(d.object(forKey: key) as? Bool ?? true), forKey: key)
+        }
+    }
+    @objc private func forgetMemory() {
+        guard let p = state.projectURL else { return }
+        guard Approval.ask("Forget \(p.lastPathComponent)?", "Kiri will delete its notes about what you worked on in this project. Your files aren't touched.", allow: "Forget") else { return }
+        ProjectMemory.forget(p)
+        state.say("Forgotten 🧹", for: 3)
+    }
+
+    private func buildExtraMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        func item(_ title: String, _ action: Selector?, _ obj: Any? = nil, on: Bool? = nil) {
+            let i = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            i.target = self
+            i.representedObject = obj
+            if let on { i.state = on ? .on : .off }
+            if action == nil { i.isEnabled = false }
+        }
+        let d = UserDefaults.standard
+        if menu === commandsMenu {
+            CustomCommands.refreshShortcuts()
+            let all = CustomCommands.all()
+            if all.isEmpty { item("No commands yet", nil) }
+            for c in all { item("“\(c.name)”", #selector(runCommand(_:)), c.name) }
+            menu.addItem(.separator())
+            item("Open Commands Folder…", #selector(openCommandsFolder))
+        } else if menu === optionsMenu {
+            item("Quiet Mode (Focus)", #selector(toggleOption(_:)), "quiet", on: state.quiet)
+            item("Break Reminders", #selector(toggleOption(_:)), "breakReminders", on: FocusCoach.enabled)
+            item("Remember My Work", #selector(toggleOption(_:)), "rememberWork", on: ProjectMemory.enabled)
+            item("Offer Help When I Copy an Error", #selector(toggleOption(_:)), "watchClipboard",
+                 on: (d.object(forKey: "watchClipboard") as? Bool ?? true) && ClipboardWatcher.autoAllowed)
+            item("Show Hoot's Accessories", #selector(toggleOption(_:)), "showAccessories", on: Evolution.shared.showAccessories)
+            menu.addItem(.separator())
+            item("Forget This Project's Memory…", state.projectURL == nil ? nil : #selector(forgetMemory))
+        } else if menu === buddyMenu {
+            item("Off", #selector(pickBuddy(_:)), nil, on: buddyStyle == nil)
+            for s in BuddyController.styles { item(s.title, #selector(pickBuddy(_:)), s.rawValue, on: buddyStyle == s) }
+            if notchController != nil { menu.addItem(.separator()); item("Shows in desktop mode only", nil) }
+        }
     }
 
     // MARK: Voice menu (rebuilt each time it opens)
@@ -152,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let voiceMenu = NSMenu()
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === commandsMenu || menu === optionsMenu || menu === buddyMenu { buildExtraMenu(menu); return }
         guard menu === voiceMenu else { return }
         menu.removeAllItems()
         let listen = menu.addItem(withTitle: "Listen when I press ⌥Space", action: #selector(toggleListen), keyEquivalent: "")
@@ -232,11 +367,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.onChatToggle = nil
             controller.hide()
             notchController?.show()
+            buddy?.close(); buddy = nil
         } else {
             notchController?.hide()
             notchController = nil
             state.onChatToggle = { [weak self] open in self?.controller.setExpanded(open) }
             controller.show()
+            if buddy == nil, setupDone { applyBuddy() }
         }
 
         displayMenu.removeAllItems()
@@ -260,8 +397,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleKiri() {
-        if let n = notchController { n.panel.isVisible ? n.hide() : n.show() } else { controller.toggle() }
+        if let n = notchController { n.panel.isVisible ? n.hide() : n.show() } else { controller.toggle(); applyBuddy() }
     }
+    private var setupDone: Bool { state != nil && controller != nil }
     @objc private func openChat() {
         if let n = notchController { n.show() } else { controller.show() }
         state.chatOpen = true
@@ -286,6 +424,19 @@ enum KiriApp {
             return
         }
         if args.contains("--selftest") { SelfTest.run(); return }
+        if let i = args.firstIndex(of: "--owl-shot"), i + 1 < args.count {
+            // Hoot with every accessory (+ focus badge) for checking the art: Kiri --owl-shot out.png --accessories
+            PetSignals.shared.quiet = args.contains("--quiet")
+            let view = HStack(spacing: 0) {
+                OwlFrame(mood: .idle, t: 1.0, followMouse: false, lookOverride: .zero)
+                OwlFrame(mood: .happy, t: 1.3, followMouse: false, lookOverride: CGPoint(x: 0.5, y: 0))
+            }.padding(10).background(Color(white: 0.92))
+            let r = ImageRenderer(content: view)
+            r.scale = 2
+            if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: URL(fileURLWithPath: args[i + 1])) }
+            return
+        }
         Log.prepare()
         if let i = args.firstIndex(of: "--wake-probe"), i + 1 < args.count {
             WakeProbe.run(args[i + 1])

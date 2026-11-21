@@ -39,6 +39,8 @@ final class PetSignals: ObservableObject {
     @Published var surprisedUntil = Date.distantPast
     /// Chat panel is open (the owl looks up at it).
     @Published var chatOpen = false
+    /// Quiet mode / Focus is on (the owl wears a little "shh" badge).
+    @Published var quiet = false
 
     func surprise(for seconds: Double = 0.7) { surprisedUntil = Date().addingTimeInterval(seconds) }
 }

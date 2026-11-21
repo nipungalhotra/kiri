@@ -14,10 +14,13 @@ enum ScreenHelp {
     static func wantsScreen(_ text: String) -> Bool {
         let t = text.lowercased()
         return ["my screen", "on screen", "on the screen", "this screen", "what am i looking at", "screenshot",
-                "what's this error", "whats this error", "look at this", "see my screen"].contains { t.contains($0) }
+                "what's this error", "whats this error", "look at this", "see my screen",
+                "where do i click", "where should i click", "show me where", "point to", "point at", "which button", "how do i do this"].contains { t.contains($0) }
     }
 
     static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
+    /// Pixel size of the last screenshot (so "point at x, y" lands in the right place).
+    nonisolated(unsafe) static var lastSize: CGSize?
 
     /// Asks macOS for Screen Recording access (shows the system prompt the first time).
     static func requestPermission() { _ = CGRequestScreenCaptureAccess() }
@@ -43,6 +46,7 @@ enum ScreenHelp {
             old.forEach { try? FileManager.default.removeItem(at: $0) }
         }
         let url = folder.appendingPathComponent("screen-\(Int(Date().timeIntervalSince1970)).png")
+        lastSize = CGSize(width: image.width, height: image.height)
         let rep = NSBitmapImageRep(cgImage: image)
         guard let png = rep.representation(using: .png, properties: [:]) else {
             throw NSError(domain: "Kiri", code: 2, userInfo: [NSLocalizedDescriptionKey: "Couldn't save screenshot"])

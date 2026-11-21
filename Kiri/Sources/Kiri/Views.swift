@@ -27,7 +27,7 @@ struct PetArea: View {
         VStack(spacing: 2) {
             Spacer(minLength: 0)
             if let text = state.bubble, !state.chatOpen || state.offerFix {
-                SpeechBubble(text: text, showFix: state.offerFix,
+                SpeechBubble(text: text, showFix: state.offerFix, fixLabel: state.fixLabel,
                              onFix: { state.fixTests() }, onDismiss: { state.dismissFix() })
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
             }
@@ -61,6 +61,7 @@ struct PetArea: View {
 struct SpeechBubble: View {
     let text: String
     var showFix = false
+    var fixLabel = "Fix it"
     var onFix: () -> Void = {}
     var onDismiss: () -> Void = {}
 
@@ -74,7 +75,7 @@ struct SpeechBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
             if showFix {
                 HStack(spacing: 6) {
-                    Button("Fix it", action: onFix).buttonStyle(.borderedProminent).tint(.teal)
+                    Button(fixLabel, action: onFix).buttonStyle(.borderedProminent).tint(.teal)
                     Button(action: onDismiss) { Text("Not now").foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22)) }
                         .buttonStyle(.bordered)
                 }

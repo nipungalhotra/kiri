@@ -297,7 +297,7 @@ struct NotchIsland: View {
         if state.offerFix {
             HStack(spacing: 8) {
                 Text(state.bubble ?? "Tests failed").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(.white).lineLimit(1)
-                Button("Fix it") { state.fixTests() }.buttonStyle(.borderedProminent).tint(.purple).controlSize(.small)
+                Button(state.fixLabel) { state.fixTests() }.buttonStyle(.borderedProminent).tint(.purple).controlSize(.small)
                 Button("Not now") { state.dismissFix() }.buttonStyle(.bordered).controlSize(.small)
             }
         } else {

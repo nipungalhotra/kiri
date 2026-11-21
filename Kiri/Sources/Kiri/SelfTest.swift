@@ -87,6 +87,51 @@ enum SelfTest {
         let red = Log.redact("key sk-ant-api03-abcdefghijklmnop and token=ghp_abcdefghijklmnopqrstuvwx1234 password: hunter2")
         check("secrets masked", !red.contains("abcdefghijklmnop") && !red.contains("hunter2") && !red.contains("ghp_"))
 
+        // 11. built-in commands
+        check("“commit this” is the commit helper", PetState.builtIn(for: "Commit this.") == .commit)
+        check("“brief me” is the daily brief", PetState.builtIn(for: "brief me") == .brief)
+        check("“explain what I copied” reads the clipboard", PetState.builtIn(for: "Explain what I copied") == .clipboard)
+        check("normal question isn't a built-in", PetState.builtIn(for: "how do I commit in git?") == nil)
+        let hello = CustomCommands.Command(name: "say hello", kind: .shortcut("Kiri: Say Hello"))
+        check("custom command matches its name", CustomCommands.match("Please say hello!", in: [hello]) == hello)
+        check("custom command needs the whole name", CustomCommands.match("say hello to mom and tell her", in: [hello]) == nil)
+        check("script file becomes a spoken name", CustomCommands.displayName(forFile: URL(fileURLWithPath: "/x/Start-Standup.sh")) == "start standup")
+
+        check("“Hey, brief me” wakes for the brief", WakeWord.commandOffset(in: "Hey brief me") != nil)
+        check("“Hey commit this” wakes for the commit helper", WakeWord.commandOffset(in: "Hey, commit this") != nil)
+
+        // 12. copied errors
+        check("Python traceback looks like an error", ClipboardWatcher.looksLikeError("Traceback (most recent call last):\n  File \"a.py\", line 3\nZeroDivisionError: division by zero"))
+        check("JS stack looks like an error", ClipboardWatcher.looksLikeError("TypeError: x is undefined\n    at foo (app.js:10:5)"))
+        check("plain text isn't an error", !ClipboardWatcher.looksLikeError("Let's meet at 5pm to talk about error handling ideas"))
+
+        // 13. Xcode build log errors
+        let log = "x\u{0}83\"/Users/me/App/ContentView.swift:12:5: error: cannot find 'foo' in scope\u{0}12\"y /Users/me/App/ContentView.swift:12:5: error: cannot find 'foo' in scope /a/b.swift:3:1: warning: unused"
+        let errs = XcodeWatcher.errors(in: log)
+        check("finds Xcode errors, once each (got \(errs.count))", errs.count == 1 && errs[0].hasSuffix("cannot find 'foo' in scope"))
+
+        // 14. PR buddy reads gh output and notices changes
+        let prJSON = #"[{"number":7,"title":"Add login","url":"u","headRefName":"login","statusCheckRollup":[{"name":"test","conclusion":"FAILURE","status":"COMPLETED"},{"name":"lint","conclusion":"SUCCESS","status":"COMPLETED"}],"reviews":[{"author":{"login":"sam"},"state":"CHANGES_REQUESTED"}],"comments":[]}]"#
+        let prs = PRWatcher.parse(prJSON)
+        check("parses PR checks", prs.first?.failing == ["test"] && prs.first?.ciState == "failed" && prs.first?.lastReviewer == "sam")
+        var events: [String] = []
+        let w = PRWatcher { e in switch e { case .ciFailed: events.append("fail"); case .ciPassed: events.append("pass"); case .newReview: events.append("review") } }
+        w.update(prs)
+        let green = PRWatcher.parse(prJSON.replacingOccurrences(of: "FAILURE", with: "SUCCESS").replacingOccurrences(of: #""comments":[]"#, with: #""comments":[{"author":{"login":"ana"}}]"#))
+        w.update(green)
+        check("PR events: red, then green + new review (got \(events))", events == ["fail", "pass", "review"])
+
+        // 15. updates compare versions properly
+        check("1.2.10 is newer than 1.2.9", Updates.isNewer("1.2.10", than: "1.2.9") && !Updates.isNewer("v1.2.1", than: "1.2.1") && Updates.isNewer("1.3", than: "1.2.1"))
+
+        // 16. project memory
+        let fake = URL(fileURLWithPath: "/tmp/kiri-selftest-project-\(ProcessInfo.processInfo.processIdentifier)")
+        ProjectMemory.record(fake, ask: "fix the login bug", outcome: "Fixed it in auth.py")
+        let ctx = ProjectMemory.context(for: fake) ?? ""
+        check("memory remembers earlier work", !ProjectMemory.enabled || ctx.contains("fix the login bug"))
+        ProjectMemory.forget(fake)
+        check("memory can be forgotten", ProjectMemory.load(fake).entries.isEmpty)
+
         // 8. battery read works (or no battery)
         let b = Battery.read()
         check("battery readable (\(b.map { "\($0.percent)% onBattery=\($0.onBattery)" } ?? "no battery"))", true)

@@ -27,12 +27,26 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Expressive:** live eyes follow your mouse and react to moods, a quick “oh!” when surprised, and a beak that talks while Kiri speaks.
 - **Light on your Mac:** 8–24 fps, GPU-drawn, and it pauses when hidden.
 
+### New in 1.3
+- **PR buddy:** watches your open GitHub pull requests (via `gh`). CI fails → Hoot gets sad and offers **Fix it**; a new review → **Explain**.
+- **Commit helper:** say or type *“commit this”*. Claude writes the message from your diff, you edit/approve it, Kiri commits (never pushes).
+- **Xcode error catcher:** when an Xcode build fails, Hoot reads the compiler errors and offers to fix them.
+- **Clipboard helper:** copy an error and Hoot offers to explain it (or 🦉 → *Explain What I Copied*).
+- **Project memory:** Hoot remembers what you worked on (only on your Mac) and greets you with *“Morning! Yesterday you were…”*.
+- **Daily brief:** *“brief me”* → today's meetings, reminders due, GitHub notifications, failing CI and tests.
+- **Focus coach:** a stretch-break nudge after 90 minutes of coding, and **Quiet Mode** (🤫) that keeps Hoot calm while you focus.
+- **Screen tutor:** ask *“where do I click to …?”* and Hoot points at the button on your screen with a glowing arrow.
+- **Your own commands:** drop a script into 🦉 → My Commands → *Open Commands Folder* (e.g. `start-standup.sh`) or name a Shortcut “Kiri: …”, then just say its name.
+- **Hoot evolves:** earns 🤓 glasses (10 green test runs), 🎓 a cap (5 fixes) and 👑 a crown (10 green in a row). *“achievements”* shows progress.
+- **Buddy pet:** 🦉 → Buddy Pet adds a second little character that minds the tests and banters with Hoot.
+- **Setup check** on first launch (Claude installed and signed in, permissions) with one-click fixes, and **update notices** when a new release is out.
+
 | Notch mode (MacBook Pro / Air with notch) | Desktop mode (every Mac) |
 |---|---|
 | <img src="Kiri/docs/kiri-notch.png" width="420"> | <img src="Kiri/docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.2.1.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.3.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -69,7 +83,7 @@ cd Kiri
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.2.1.dmg installer
+./make-dmg.sh          # dist/Kiri-1.3.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 

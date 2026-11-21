@@ -32,7 +32,8 @@ final class PetState: ObservableObject {
             UserDefaults.standard.set(projectURL?.path, forKey: "projectPath")
             refreshTestPlan()
             updateWatcher()
-            lastTestsPassed = nil
+            lastTestsPassed = projectURL.flatMap { ProjectMemory.load($0).testsPassed }
+            prWatcher?.watch(projectURL)
         }
     }
     /// Read Claude's replies and test results out loud.
@@ -67,7 +68,25 @@ final class PetState: ObservableObject {
         didSet { UserDefaults.standard.set(watchTests, forKey: "watchTests"); updateWatcher() }
     }
     /// What "Fix it" will ask Claude (tests, a failed terminal command, ...).
-    private var fixRequest: (prompt: String, display: String, cwd: URL?)?
+    /// `isFix` counts toward Hoot's graduation cap; `tools` are extra commands Claude may run for it.
+    var fixRequest: (prompt: String, display: String, cwd: URL?, tools: [String], isFix: Bool)?
+    /// Text on the bubble's main button ("Fix it", "Explain").
+    @Published var fixLabel = "Fix it"
+    /// Quiet mode (Focus): no chatty bubbles or speech unless you ask or something breaks.
+    @Published var quiet: Bool {
+        didSet { UserDefaults.standard.set(quiet, forKey: "quiet"); PetSignals.shared.quiet = quiet }
+    }
+    var onBuddyEvent: ((BuddyEvent) -> Void)?
+    private var prWatcher: PRWatcher?
+    private var clipboardWatcher: ClipboardWatcher?
+    private var xcodeWatcher: XcodeWatcher?
+    private let focusCoach = FocusCoach()
+    var greetedDay = ""
+    /// What the current Claude run is about (for project memory and the cap).
+    private var currentAsk = ""
+    private var currentIsFix = false
+    var openPRs: [PRWatcher.PR] { prWatcher?.current ?? [] }
+    var lastTestsPassedPublic: Bool? { lastTestsPassed }
     private var folderWatcher: FolderWatcher?
     private var terminalWatcher: TerminalWatcher?
     private var lastTestsPassed: Bool?
@@ -137,6 +156,7 @@ final class PetState: ObservableObject {
         watchTests = UserDefaults.standard.bool(forKey: "watchTests")
         listenOnHotkey = UserDefaults.standard.object(forKey: "listenOnHotkey") as? Bool ?? true
         heyHoot = UserDefaults.standard.object(forKey: "heyHoot") as? Bool ?? true
+        quiet = UserDefaults.standard.bool(forKey: "quiet")
         if let path = UserDefaults.standard.string(forKey: "projectPath"),
            FileManager.default.fileExists(atPath: path) {
             projectURL = URL(fileURLWithPath: path)
@@ -149,6 +169,14 @@ final class PetState: ObservableObject {
         updateWatcher()
         terminalWatcher = TerminalWatcher { [weak self] failure in self?.terminalFailed(failure) }
         setUpWakeWord()
+        PetSignals.shared.quiet = quiet
+        prWatcher = PRWatcher { [weak self] e in self?.prEvent(e) }
+        prWatcher?.watch(projectURL)
+        lastTestsPassed = projectURL.flatMap { ProjectMemory.load($0).testsPassed }
+        clipboardWatcher = ClipboardWatcher { [weak self] text in self?.copiedError(text) }
+        xcodeWatcher = XcodeWatcher(onFailure: { [weak self] f in self?.xcodeFailed(f) },
+                                    onFixed: { [weak self] name in self?.say("\(name) builds again! 🎉", for: 4); self?.feel(.happy, for: 2) })
+        CustomCommands.refreshShortcuts()
     }
 
     /// "Hey Hoot, …" → send the rest; "Hey Hoot" alone → listen for the command.
@@ -179,6 +207,8 @@ final class PetState: ObservableObject {
         settle()
         if isLate {
             say("Hi, I'm \(style.title) …it's late, but I'm here for you 😴", for: 7)
+        } else if let morning = morningGreeting() {
+            say(morning, for: 10)
         } else if let p = projectURL {
             say("Hi, I'm \(style.title) Ready to help with \(p.lastPathComponent)!", for: 7)
         } else {
@@ -247,6 +277,12 @@ final class PetState: ObservableObject {
 
     private func tick() {
         checkBattery()
+        if focusCoach.minuteTick(), !busy, !testing, !quiet {
+            say("You've been coding for 90 minutes 💪 Time for a stretch break? 🧘", for: 12)
+            feel(.happy, for: 3)
+            if speakReplies { Voice.shared.speak("You've been coding for ninety minutes. Time for a short stretch break?") }
+        }
+        if !busy, !testing, !offerFix, !quiet, bubble == nil, let morning = morningGreeting() { say(morning, for: 10) }
         guard !busy, !testing, !offerFix, mood == .idle || mood == .sleepy || (mood == .sad && PetSignals.shared.batteryLow) else { return }
         settle()
         if isLate && !saidGoodnight {
@@ -294,7 +330,7 @@ final class PetState: ObservableObject {
         offerFix = false
     }
 
-    private func note(_ text: String) { messages.append(ChatMessage(role: .note, text: text)) }
+    func note(_ text: String) { messages.append(ChatMessage(role: .note, text: text)) }
 
     // MARK: Tests
 
@@ -326,6 +362,7 @@ final class PetState: ObservableObject {
         lastTestPlan = plan
         activity = "Running \(plan.label)…"
         mood = .working
+        onBuddyEvent?(.testsStarted)
         if !silent { say("Running \(plan.label)… 🤞", for: nil) }
 
         TestRunner.run(plan, in: dir, progress: { [weak self] p in
@@ -342,8 +379,11 @@ final class PetState: ObservableObject {
             let summary = TestRunner.summary(of: output)
             let changed = self.lastTestsPassed != ok
             self.lastTestsPassed = ok
+            ProjectMemory.recordTests(dir, passed: ok)
+            self.onBuddyEvent?(ok ? .testsPassed(streak: self.streak + 1) : .testsFailed)
             if ok {
                 self.streak += 1
+                if let unlocked = Evolution.shared.testsPassed(streak: self.streak) { self.celebrate(unlocked) }
                 if silent && !changed { self.bubble = nil; self.settle(); return }   // still green: stay quiet
                 let cheer = ["All tests passed! 🎉", "Green everywhere! 🌿✨", "Perfect run! You're on fire 🔥"]
                 self.say(cheer[(self.streak - 1) % cheer.count] + (self.streak > 1 ? " (\(self.streak) in a row)" : ""), for: 6)
@@ -356,6 +396,7 @@ final class PetState: ObservableObject {
                 PetSignals.shared.surprise(for: 0.8)
                 self.mood = .sad
                 self.fixRequest = nil
+                self.fixLabel = "Fix it"
                 self.offerFix = true
                 self.say("Tests failed 😢 Want me to fix it?", for: nil)
                 self.note("❌ Tests failed — \(summary)")
@@ -371,7 +412,8 @@ final class PetState: ObservableObject {
         chatOpen = true
         if let req = fixRequest {
             fixRequest = nil
-            send(req.prompt, shownAs: req.display, cwd: req.cwd)
+            send(req.prompt, shownAs: req.display, cwd: req.cwd, extraAllowedTools: req.tools)
+            currentIsFix = req.isFix
             return
         }
         let tail = String(lastTestOutput.suffix(4000))
@@ -379,11 +421,13 @@ final class PetState: ObservableObject {
         var prompt = "I ran \(cmd) and it failed. Here is the end of the output:\n\n```\n\(tail)\n```\n\nFind the cause and fix it."
         if !allowEdits { prompt += " (You can't edit files right now, so explain the fix and show the exact change.)" }
         send(prompt, shownAs: "Please fix the failing tests 🙏")
+        currentIsFix = true
     }
 
     func dismissFix() {
         offerFix = false
         fixRequest = nil
+        fixLabel = "Fix it"
         bubble = nil
         say("Okay! Ping me when you want help 💚", for: 3)
         settle()
@@ -409,11 +453,12 @@ final class PetState: ObservableObject {
             prompt: "In my terminal, the command `\(f.command)` failed with exit code \(f.code) in \(f.dir). "
                 + "Figure out the likely cause (look at the files here if useful) and tell me how to fix it.",
             display: "Why did `\(f.command.prefix(60))` fail? 🤔",
-            cwd: dir)
+            cwd: dir, tools: [], isFix: false)
+        fixLabel = "Help me"
         offerFix = true
         mood = .sad
         say("`\(f.command.prefix(40))` failed (exit \(f.code)). Want me to look?", for: nil)
-        if speakReplies { Voice.shared.speak("Your command failed. Want me to take a look?") }
+        if speakReplies && !quiet { Voice.shared.speak("Your command failed. Want me to take a look?") }
     }
 
     /// Adds the small zsh hook that reports failed commands (only when the user clicks to do so).
@@ -488,6 +533,9 @@ final class PetState: ObservableObject {
         Log.write("send pressed busy=\(busy) project=\(projectURL?.path ?? "nil")")
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy else { return }
+        if display == nil, handleBuiltIn(text) { return }
+        currentAsk = display ?? text
+        currentIsFix = false
         let dir = cwd ?? projectURL ?? Self.workspace
         let wantsScreen = includeScreen ?? ScreenHelp.wantsScreen(text)
 
@@ -500,9 +548,12 @@ final class PetState: ObservableObject {
         activity = wantsScreen ? "Looking at your screen…" : "Thinking…"
         mood = .thinking
         if !chatOpen { say(wantsScreen ? "Looking at your screen… 👀" : "Thinking… 💭", for: nil) }
+        onBuddyEvent?(.owlThinking)
 
+        var ask = text
+        if sessionID == nil, let memory = ProjectMemory.context(for: cwd ?? projectURL) { ask += "\n\n" + memory }
         guard wantsScreen else {
-            startClaude(text, dir: dir, extraAllowedTools: extraAllowedTools, forceEdits: forceEdits, addDirs: [])
+            startClaude(ask, dir: dir, extraAllowedTools: extraAllowedTools, forceEdits: forceEdits, addDirs: [])
             return
         }
         // Just try: the "do I have permission?" check can say no on recent macOS even when access is granted.
@@ -511,7 +562,8 @@ final class PetState: ObservableObject {
             do {
                 let shot = try await ScreenHelp.capture()
                 Log.write("screenshot \(shot.lastPathComponent)")
-                let withShot = "\(text)\n\n(Screenshot of my screen right now: \(shot.path). Read it to see what I see.)"
+                let px = ScreenHelp.lastSize.map { " It is \(Int($0.width))×\(Int($0.height)) pixels." } ?? ""
+                let withShot = "\(ask)\n\n(Screenshot of my screen right now: \(shot.path). Read it to see what I see.\(px))"
                 startClaude(withShot, dir: dir, extraAllowedTools: extraAllowedTools + ["Read(\(ScreenHelp.folder.path)/**)"],
                             forceEdits: forceEdits, addDirs: [ScreenHelp.folder])
             } catch {
@@ -573,6 +625,10 @@ final class PetState: ObservableObject {
                 return
             }
             let spoken = result.map { MacAction.extract(from: $0).cleaned }
+            ProjectMemory.record(projectURL, ask: currentAsk, outcome: spoken ?? "")
+            if currentIsFix, let unlocked = Evolution.shared.fixed() { DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.celebrate(unlocked) } }
+            currentIsFix = false
+            onBuddyEvent?(.owlHappy)
             if !chatOpen, let r = spoken, !r.isEmpty {
                 let short = r.count > 90 ? String(r.prefix(90)) + "… (click me)" : r
                 say(short, for: 10)
@@ -611,6 +667,7 @@ final class PetState: ObservableObject {
             mood = .working
             let result = await MacActions.run(a)
             Log.write("action \(a.kind) -> \(Log.secret(result))")
+            if a.kind == "focus", !result.hasPrefix("To let me") { quiet = (a.args["on"] as? Bool) ?? true }
             note("🦉 \(result)")
             say(result, for: 5)
             if speakReplies { Voice.shared.speak(result) }

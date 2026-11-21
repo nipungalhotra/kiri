@@ -35,6 +35,10 @@ enum MacActions {
         case "reminder": return await addReminder(title: a.args["title"] as? String ?? "Reminder", due: a.args["due"] as? String)
         case "focus": return focus(on: (a.args["on"] as? Bool) ?? true)
         case "organize_folder": return await organize(a.args["folder"] as? String ?? "Downloads")
+        case "point":
+            let num = { (k: String) -> Double? in (a.args[k] as? Double) ?? (a.args[k] as? Int).map(Double.init) }
+            guard let x = num("x"), let y = num("y") else { return "I wasn't sure where to point 🤔" }
+            return Pointer.show(x: x, y: y, label: a.args["label"] as? String ?? "here")
         default: return "I don't know how to do “\(a.kind)” yet."
         }
     }

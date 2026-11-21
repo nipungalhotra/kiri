@@ -115,12 +115,12 @@ final class WakeWord {
     /// The recognizer often drops "Hoot" and keeps only "Hey". Accept "Hey" + a command verb at the start
     /// of what was heard, or "Hey" alone followed by a pause. Plain chat ("hey, how are you") doesn't match.
     static let heyCommandPattern = try! NSRegularExpression(
-        pattern: #"^\s*(?:hey|hay|play)[\s,]+(?=(?:open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on)\b)"#,
+        pattern: #"^\s*(?:hey|hay|play)[\s,]+(?=(?:open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on|brief|daily brief|commit|good morning|what did i copy|achievements|say|plan my day)\b)"#,
         options: [.caseInsensitive])
     static let heyAlonePattern = try! NSRegularExpression(pattern: #"^\s*(?:hey|hay)[\s,.!]*$"#, options: [.caseInsensitive])
 
     static func startsWithCommand(_ text: String) -> Bool {
-        text.range(of: #"^\s*(?:open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on)\b"#,
+        text.range(of: #"^\s*(?:open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on|brief|daily brief|commit|good morning|what did i copy|achievements|say|plan my day)\b"#,
                    options: [.regularExpression, .caseInsensitive]) != nil
     }
 
