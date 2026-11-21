@@ -100,7 +100,19 @@ final class PetState: ObservableObject {
         return h >= 23 || h < 5
     }
 
+    /// Kiri's app ID changed from local.kiri.pet to app.kiri.hoot (a clean slate for macOS permissions).
+    /// Carry the old settings over once.
+    private static func migrateOldSettings() {
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "migratedFromLocalKiriPet"), let old = UserDefaults(suiteName: "local.kiri.pet") else { return }
+        for key in ["projectPath", "allowEdits", "speakReplies", "character", "watchTests", "displayMode"] {
+            if d.object(forKey: key) == nil, let v = old.object(forKey: key) { d.set(v, forKey: key) }
+        }
+        d.set(true, forKey: "migratedFromLocalKiriPet")
+    }
+
     init() {
+        Self.migrateOldSettings()
         allowEdits = UserDefaults.standard.bool(forKey: "allowEdits")
         speakReplies = UserDefaults.standard.object(forKey: "speakReplies") as? Bool ?? true
         style = CharacterStyle(rawValue: UserDefaults.standard.string(forKey: "character") ?? "") ?? .owl

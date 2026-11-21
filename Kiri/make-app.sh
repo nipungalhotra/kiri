@@ -2,9 +2,10 @@
 # Builds Kiri.app (universal: Apple Silicon + Intel, macOS 14+). Double-click to run; no Dock icon.
 #   ./make-app.sh          universal release build
 #   ./make-app.sh --fast   quicker build for this Mac only
+#   ./make-app.sh --install  build and move into /Applications
 set -e
 cd "${0:A:h}"
-VERSION="1.1.1"
+VERSION="1.1.2"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -29,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>Kiri</string>
   <key>CFBundleDisplayName</key><string>Kiri</string>
-  <key>CFBundleIdentifier</key><string>local.kiri.pet</string>
+  <key>CFBundleIdentifier</key><string>app.kiri.hoot</string>
   <key>CFBundleExecutable</key><string>Kiri</string>
   <key>CFBundleIconFile</key><string>Kiri</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -44,8 +45,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-# Sign with the stable local identity if present, so macOS keeps Kiri's permissions across rebuilds.
-SIGN_ID=$(security find-identity -p codesigning 2>/dev/null | awk '/"Kiri Local Signing"/ {print $2; exit}')
+# Sign with the stable local identity only if macOS trusts it (an untrusted one is refused by Screen Recording), so macOS keeps Kiri's permissions across rebuilds.
+SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Kiri Local Signing"/ {print $2; exit}')
 if [[ -n "$SIGN_ID" ]] && codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null; then
   echo "Signed with Kiri Local Signing"
 else
@@ -53,3 +54,11 @@ else
   echo "Signed ad-hoc (permissions may need re-granting after each build)"
 fi
 echo "Built $(pwd)/$APP  ($(lipo -archs "$APP/Contents/MacOS/Kiri"))"
+
+# ./make-app.sh --install   also moves the app into /Applications (needed for Screen Recording permission)
+if [[ " $* " == *" --install "* ]]; then
+  pkill -f "MacOS/Kiri" 2>/dev/null || true
+  rm -rf /Applications/Kiri.app && mv "$APP" /Applications/Kiri.app
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Kiri.app
+  echo "Installed to /Applications/Kiri.app"
+fi
