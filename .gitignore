@@ -1,0 +1,11 @@
+# build output
+Kiri/.build/
+Kiri/.swiftpm/
+Kiri/Kiri.app/
+Kiri/dist/
+Kiri/packaging/Kiri.iconset/
+# large early design concepts (kept locally only)
+Kiri/docs/concepts/
+*.dSYM
+.DS_Store
+__pycache__/

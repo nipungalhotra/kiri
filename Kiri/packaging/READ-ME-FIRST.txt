@@ -1,0 +1,36 @@
+KIRI — a desktop pet that codes with you
+==========================================
+
+Hoot the owl lives on your desktop (or in the notch on notched MacBooks),
+chats with you about your code, runs your tests, gets sad when they fail,
+fixes them, and celebrates when they pass.
+
+INSTALL
+1. Drag Kiri.app onto the Applications folder.
+2. Open Applications, RIGHT-click Kiri -> Open -> Open.
+   (Kiri isn't from the App Store yet, so the first launch needs right-click -> Open.
+    If macOS still blocks it: System Settings -> Privacy & Security -> "Open Anyway".)
+3. Look for the owl near the bottom-right of your screen, and the owl in the menu bar.
+
+ONE-TIME SETUP (needed for the chat / fixing code)
+Kiri's brain is Claude Code. In Terminal:
+    npm install -g @anthropic-ai/claude-code      (skip if you already have `claude`)
+    claude --setting-sources project,local
+    /login      -> sign in with your Claude account, then /exit
+
+USE IT
+- Option+Space in any app -> chat opens. Type, or talk with a dictation app
+  like Wispr Flow, and press Enter.
+- Speaker button: Kiri reads replies out loud.
+- Run tests: works with npm, swift, cargo, go, pytest/unittest and make projects.
+- "Can edit files" switch: off = Kiri only reads and explains. On = it may fix code.
+- When macOS asks "Kiri would like to access files in ...", click Allow.
+- Menu bar owl -> Display: Auto / Notch / Desktop pet.
+
+TRY THE DEMO
+1. Owl menu -> Choose Project... -> pick "Kiri Demo Project" (copy it out of this disk first).
+2. Run tests -> the owl gets sad -> turn on "Can edit files" -> Fix it -> Run tests -> celebration!
+3. ./reset-demo.sh puts the bug back for the next demo.
+
+Requires macOS 14 (Sonoma) or newer. Apple Silicon and Intel.
+Problems? The log is at ~/Library/Logs/Kiri.log
