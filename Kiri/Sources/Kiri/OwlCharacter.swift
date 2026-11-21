@@ -196,6 +196,8 @@ struct OwlFrame: View {
             SoundWaves(t: t, color: Color(red: 0.4, green: 0.8, blue: 1)).offset(y: -140)
         case .happy:
             Confetti(t: t).offset(y: -150)
+        case .sad where PetSignals.shared.batteryLow:
+            LowBatteryBadge(t: t, percent: PetSignals.shared.batteryPercent).offset(y: -226 + sin(t * 1.5) * 2)
         case .sad:
             ZStack {
                 CloudShape().fill(LinearGradient(colors: [Color(white: 0.75), Color(white: 0.55)], startPoint: .top, endPoint: .bottom))

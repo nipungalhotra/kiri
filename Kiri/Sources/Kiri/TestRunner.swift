@@ -37,8 +37,30 @@ enum TestRunner {
     }
 
     /// Runs `plan` in `dir` through a login shell; calls back on the main queue with (passed, output).
+    /// Running totals while tests run.
+    struct Progress { var passed = 0; var failed = 0 }
+
+    /// Counts passed/failed tests from one line of output, across common runners:
+    /// unittest -v ("... ok"), pytest (-v "PASSED" or -q dots), jest ("✓"/"✕"), swift test, cargo, go -v.
+    static func tally(_ line: String, into p: inout Progress) {
+        let l = line.trimmingCharacters(in: .whitespaces)
+        if l.hasSuffix("... ok") || l.contains(" PASSED") || l.hasPrefix("PASSED ") || l.hasPrefix("✓") || l.hasPrefix("--- PASS")
+            || (l.hasPrefix("Test Case") && l.contains(" passed")) || (l.hasPrefix("test ") && l.hasSuffix(" ... ok")) {
+            p.passed += 1
+        } else if l.hasSuffix("... FAIL") || l.hasSuffix("... ERROR") || l.contains(" FAILED") || l.hasPrefix("FAILED ") || l.hasPrefix("✕")
+                    || l.hasPrefix("--- FAIL") || (l.hasPrefix("Test Case") && l.contains(" failed")) {
+            p.failed += 1
+        } else if !l.isEmpty, l.range(of: #"^[.FEsx]+(\s+\[\s*\d+%\])?$"#, options: .regularExpression) != nil {
+            // pytest -q progress dots
+            for ch in l { if ch == "." { p.passed += 1 } else if ch == "F" || ch == "E" { p.failed += 1 } }
+        }
+    }
+
+    /// Runs `plan` in `dir`; streams live pass/fail counts to `progress`, then calls `completion(passed, output)`.
+    /// Both callbacks arrive on the main queue.
     @discardableResult
-    static func run(_ plan: Plan, in dir: URL, completion: @escaping (Bool, String) -> Void) -> Process {
+    static func run(_ plan: Plan, in dir: URL, progress: ((Progress) -> Void)? = nil,
+                    completion: @escaping (Bool, String) -> Void) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", plan.command]
@@ -54,9 +76,26 @@ enum TestRunner {
                 DispatchQueue.main.async { completion(false, "Couldn't run `\(plan.command)`: \(error.localizedDescription)") }
                 return
             }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            var all = Data()
+            var partial = ""
+            var counts = Progress()
+            let handle = pipe.fileHandleForReading
+            while true {
+                let chunk = handle.availableData
+                if chunk.isEmpty { break }
+                all.append(chunk)
+                partial += String(decoding: chunk, as: UTF8.self)
+                var lines = partial.components(separatedBy: "\n")
+                partial = lines.removeLast()
+                let before = (counts.passed, counts.failed)
+                for line in lines { tally(line, into: &counts) }
+                if (counts.passed, counts.failed) != before, let progress {
+                    let snapshot = counts
+                    DispatchQueue.main.async { progress(snapshot) }
+                }
+            }
             p.waitUntilExit()
-            let output = String(data: data, encoding: .utf8) ?? ""
+            let output = String(data: all, encoding: .utf8) ?? ""
             let ok = p.terminationStatus == 0
             DispatchQueue.main.async { completion(ok, output) }
         }

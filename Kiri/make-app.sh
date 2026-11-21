@@ -4,7 +4,7 @@
 #   ./make-app.sh --fast   quicker build for this Mac only
 set -e
 cd "${0:A:h}"
-VERSION="1.0"
+VERSION="1.1"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -38,6 +38,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
+  <key>NSRemindersUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
   <key>NSHumanReadableCopyright</key><string>Kiri — a desktop pet that codes with you.</string>
 </dict>
 </plist>

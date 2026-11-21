@@ -296,7 +296,7 @@ struct NotchIsland: View {
     @ViewBuilder private var statusLine: some View {
         if state.offerFix {
             HStack(spacing: 8) {
-                Text("Tests failed").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(.white)
+                Text(state.bubble ?? "Tests failed").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(.white).lineLimit(1)
                 Button("Fix it") { state.fixTests() }.buttonStyle(.borderedProminent).tint(.purple).controlSize(.small)
                 Button("Not now") { state.dismissFix() }.buttonStyle(.bordered).controlSize(.small)
             }
@@ -310,6 +310,7 @@ struct NotchIsland: View {
     }
 
     private var defaultLine: String {
+        if PetSignals.shared.batteryLow { return "Battery \(PetSignals.shared.batteryPercent)% — please plug in 🔋" }
         switch state.mood {
         case .sleepy: return "It's late… 😴"
         case .happy: return "Nice work! 🎉"

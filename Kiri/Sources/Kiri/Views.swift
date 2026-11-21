@@ -103,7 +103,7 @@ struct ChatView: View {
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    private let examples = ["Explain this project to me", "Find bugs in my code", "What should I test next?"]
+    private let examples = ["Explain this project to me", "Find bugs in my code", "What's on my screen?", "Remind me to stretch in 1 hour"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -152,6 +152,14 @@ struct ChatView: View {
                 Toggle("Can edit files", isOn: $state.allowEdits)
                     .toggleStyle(.switch).controlSize(.mini)
                     .help("Off: Kiri can only read and explain. On: Kiri can change files in this project.")
+                Toggle(isOn: $state.watchTests) { Image(systemName: state.watchTests ? "eye.fill" : "eye.slash") }
+                    .toggleStyle(.button).controlSize(.small)
+                    .disabled(state.projectURL == nil)
+                    .help(state.watchTests ? "Watching: tests re-run when you save a file" : "Re-run tests automatically when you save")
+                Button { state.askAboutScreen() } label: { Image(systemName: "camera.viewfinder") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .disabled(state.busy)
+                    .help("What's on my screen?")
                 Toggle(isOn: $state.speakReplies) { Image(systemName: state.speakReplies ? "speaker.wave.2.fill" : "speaker.slash") }
                     .toggleStyle(.button).controlSize(.small)
                     .help(state.speakReplies ? "Kiri reads replies out loud (click to mute)" : "Muted (click to hear replies)")

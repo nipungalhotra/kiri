@@ -124,6 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Open Chat  (⌥Space)", #selector(openChat))
         add("Run Tests", #selector(runTests))
         add("Choose Project…", #selector(chooseProject))
+        add("What's on My Screen?", #selector(askScreen))
+        add("Set Up Terminal Watching…", #selector(terminalSetup))
         menu.addItem(.separator())
         let displayItem = menu.addItem(withTitle: "Display", action: nil, keyEquivalent: "")
         displayMenu.autoenablesItems = false
@@ -221,6 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.runTests()
     }
     @objc private func chooseProject() { state.chooseProject() }
+    @objc private func askScreen() { if let n = notchController { n.show() } else { controller.show() }; state.askAboutScreen() }
+    @objc private func terminalSetup() { state.setUpTerminalWatching() }
     @objc private func quit() { NSApp.terminate(nil) }
 }
 
@@ -233,6 +237,7 @@ enum KiriApp {
             Snapshot.render(to: URL(fileURLWithPath: args[i + 1]))
             return
         }
+        if args.contains("--selftest") { SelfTest.run(); return }
         if let i = args.firstIndex(of: "--gif"), i + 1 < args.count {
             GifExport.render(to: URL(fileURLWithPath: args[i + 1]))
             return

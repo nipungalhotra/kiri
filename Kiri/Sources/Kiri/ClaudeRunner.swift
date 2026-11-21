@@ -9,6 +9,10 @@ enum ClaudeEvent {
     case failed(String)
     /// Claude couldn't reach its server and is retrying (attempt number).
     case retry(Int)
+    /// A tool call, with enough detail to ask the user about it later.
+    case toolCall(id: String, name: String, detail: String)
+    /// Claude Code refused a tool call (needs the user's approval).
+    case denied(id: String, tool: String)
 }
 
 /// Runs the Claude Code CLI headlessly (`claude -p … --output-format stream-json`) inside the
@@ -17,10 +21,19 @@ final class ClaudeRunner {
     private var process: Process?
 
     static let persona = """
-    You are Kiri, a tiny sprout-spirit who lives on the user's Mac desktop and helps them code. \
-    You are running inside their project folder. Be warm, a little playful, and brief: \
+    You are Kiri (Hoot the owl), a friendly desktop pet on the user's Mac that helps them code and \
+    with small Mac tasks. You usually run inside their project folder. Be warm, a little playful, and brief: \
     at most about 120 words of plain text (short code snippets are fine, no headings). \
-    When you change files, say exactly which files you changed.
+    When you change files, say exactly which files you changed. \
+    If the user mentions a screenshot path, read that image with the Read tool to see their screen. \
+    MAC ACTIONS: Kiri can do these for the user. Only when the user asks for one, put it on its own line, \
+    exactly like: KIRI_ACTION {"action":"open_app","name":"Safari"} \
+    Available: open_app {name}; open_url {url}; reminder {title, due} where due is local ISO 8601 \
+    like 2026-11-22T10:00 (optional); focus {on: true or false}; organize_folder {folder} where folder is \
+    "Downloads", "Desktop" or an absolute path (sorts loose files into subfolders by type). \
+    Never use shell commands for these. Kiri asks the user before anything risky, so just request the action \
+    and tell the user briefly what you asked Kiri to do. \
+    If a tool call is blocked for permission, don't explain settings: just say "Kiri will ask you to allow it" in one short line.
     """
 
     static let claudePath: String? = {
@@ -109,6 +122,7 @@ final class ClaudeRunner {
     func stop() { process?.terminate() }
 
     func send(prompt: String, cwd: URL, sessionID: String?, allowEdits: Bool,
+              extraAllowedTools: [String] = [], forceEdits: Bool = false, addDirs: [URL] = [],
               onEvent: @escaping (ClaudeEvent) -> Void) {
         let deliver: (ClaudeEvent) -> Void = { e in
             switch e {
@@ -118,6 +132,8 @@ final class ClaudeRunner {
             case .done(let r, let err, let denied): Log.write("claude done error=\(err) denied=\(denied): \((r ?? "").prefix(300))")
             case .failed(let why): Log.write("claude FAILED: \(why)")
             case .retry(let n): Log.write("claude retry \(n)")
+            case .toolCall(let id, let name, let detail): Log.write("claude toolCall \(id) \(name): \(detail.prefix(160))")
+            case .denied(let id, let tool): Log.write("claude denied \(id) \(tool)")
             }
             DispatchQueue.main.async { onEvent(e) }
         }
@@ -131,14 +147,17 @@ final class ClaudeRunner {
         p.executableURL = URL(fileURLWithPath: exe)
         var args = ["-p", prompt,
                     "--output-format", "stream-json", "--verbose",
-                    "--permission-mode", allowEdits ? "acceptEdits" : "default",
+                    "--permission-mode", (allowEdits || forceEdits) ? "acceptEdits" : "default",
                     "--append-system-prompt", Self.persona]
         if let s = sessionID { args += ["--resume", s] }
+        var allowed = extraAllowedTools
         if allowEdits {
             // Allow running the project's tests (and nothing else extra) so Claude can check its fix.
-            args += ["--allowedTools", "Bash(python3 -m unittest:*)", "Bash(python3 -m pytest:*)", "Bash(pytest:*)",
-                     "Bash(npm test:*)", "Bash(swift test:*)", "Bash(cargo test:*)", "Bash(go test:*)", "Bash(make test:*)"]
+            allowed += ["Bash(python3 -m unittest:*)", "Bash(python3 -m pytest:*)", "Bash(pytest:*)",
+                        "Bash(npm test:*)", "Bash(swift test:*)", "Bash(cargo test:*)", "Bash(go test:*)", "Bash(make test:*)"]
         }
+        if !allowed.isEmpty { args += ["--allowedTools"] + allowed }
+        for dir in addDirs { args += ["--add-dir", dir.path] }
         if Self.shouldSkipUserSettings() {
             args += ["--setting-sources", "project,local"]
             Log.write("user settings point at a local server that isn't running; skipping them")
@@ -225,19 +244,26 @@ final class ClaudeRunner {
                 Log.write("claude system \(sub): \(raw.prefix(500))")
             }
             if sub == "api_retry" { return [.retry(obj["attempt"] as? Int ?? 1)] }
+            if sub == "permission_denied" {
+                return [.denied(id: obj["tool_use_id"] as? String ?? "", tool: obj["tool_name"] as? String ?? "tool")]
+            }
             if sub == "init", let s = obj["session_id"] as? String { return [.session(s)] }
         case "assistant":
             guard let msg = obj["message"] as? [String: Any],
                   let content = msg["content"] as? [[String: Any]] else { return [] }
-            return content.compactMap { c -> ClaudeEvent? in
+            return content.flatMap { c -> [ClaudeEvent] in
                 switch c["type"] as? String {
                 case "text":
-                    if let t = c["text"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .text(t) }
+                    if let t = c["text"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [.text(t)] }
                 case "tool_use":
-                    return .tool(describe(name: c["name"] as? String ?? "tool", input: c["input"] as? [String: Any] ?? [:]))
+                    let name = c["name"] as? String ?? "tool"
+                    let input = c["input"] as? [String: Any] ?? [:]
+                    let detail = (input["command"] as? String) ?? (input["file_path"] as? String) ?? (input["url"] as? String) ?? ""
+                    return [.tool(describe(name: name, input: input)),
+                            .toolCall(id: c["id"] as? String ?? "", name: name, detail: detail)]
                 default: break
                 }
-                return nil
+                return []
             }
         case "result":
             var events: [ClaudeEvent] = []
