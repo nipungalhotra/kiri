@@ -57,6 +57,12 @@ struct OwlFrame: View {
     let t: Double
     /// Just the owl (with eyelids), filling the given height — used inside the notch.
     var headOnly = false
+    /// Eyes follow the mouse (off for static renders).
+    var followMouse = true
+    /// Force where the eyes look (-1...1 each axis), for previews.
+    var lookOverride: CGPoint? = nil
+    /// Show the talking beak without actual speech, for previews.
+    var previewTalking = false
 
     static let size = CGSize(width: 210, height: 290)
     private let bodyHeight: CGFloat = 196
@@ -66,8 +72,7 @@ struct OwlFrame: View {
             Image(nsImage: img).resizable().interpolation(.high).scaledToFit()
                 .overlay {
                     GeometryReader { g in
-                        furLid(img, OwlArt.leftEye, in: g.size, tilt: mood == .sad ? -14 : 0)
-                        furLid(img, OwlArt.rightEye, in: g.size, tilt: mood == .sad ? 14 : 0)
+                        face(img, in: g.size)
                     }
                 }
                 .brightness(mood == .sleepy ? -0.12 : 0)
@@ -76,7 +81,10 @@ struct OwlFrame: View {
         }
     }
 
+    private var surprised: Bool { Date() < PetSignals.shared.surprisedUntil }
+
     private var lid: CGFloat {
+        if surprised { return 0 }
         let blink = t.truncatingRemainder(dividingBy: 4.0) < 0.13 || (t + 0.25).truncatingRemainder(dividingBy: 11.0) < 0.13
         switch mood {
         case .sleepy: return 0.72 + CGFloat(sin(t * 1.1)) * 0.06
@@ -104,8 +112,7 @@ struct OwlFrame: View {
                     Image(nsImage: img).resizable().interpolation(.high).scaledToFit()
                         .overlay {
                             GeometryReader { g in
-                                furLid(img, OwlArt.leftEye, in: g.size, tilt: mood == .sad ? -14 : 0)
-                                furLid(img, OwlArt.rightEye, in: g.size, tilt: mood == .sad ? 14 : 0)
+                                face(img, in: g.size)
                             }
                         }
                         .brightness(mood == .sleepy ? -0.15 : 0)
@@ -131,6 +138,137 @@ struct OwlFrame: View {
             props(accent)
         }
         .frame(width: Self.size.width, height: Self.size.height, alignment: .bottom)
+    }
+
+    // MARK: Live face — moving irises, reacting pupils, talking beak
+
+    /// Beak tip inside body.png (fractions of the image).
+    private static let beakTip = CGPoint(x: 0.586, y: 0.418)
+
+    @ViewBuilder
+    private func face(_ img: NSImage, in size: CGSize) -> some View {
+        let look = lookVector
+        liveEye(OwlArt.leftEye, in: size, look: look, isRight: false)
+        liveEye(OwlArt.rightEye, in: size, look: look, isRight: true)
+        furLid(img, OwlArt.leftEye, in: size, tilt: mood == .sad ? -14 : 0)
+        furLid(img, OwlArt.rightEye, in: size, tilt: mood == .sad ? 14 : 0)
+        if Voice.shared.isSpeaking || previewTalking { talkingBeak(in: size) }
+    }
+
+    /// Where the eyes point, -1...1 on each axis (y down).
+    private var lookVector: CGPoint {
+        if let o = lookOverride { return o }
+        if surprised { return CGPoint(x: 0, y: -0.35) }
+        switch mood {
+        case .thinking: return CGPoint(x: 0.65 + sin(t * 0.7) * 0.1, y: -0.85)
+        case .working: return CGPoint(x: sin(t * 2.4) * 0.75, y: 0.6)          // reading lines of code
+        case .sad: return CGPoint(x: sin(t * 0.5) * 0.15, y: 0.75)
+        case .sleepy: return CGPoint(x: 0, y: 0.5)
+        default: break
+        }
+        if PetSignals.shared.chatOpen { return CGPoint(x: -0.45, y: -0.75) }  // looking up at the chat
+        if followMouse, let m = mouseLook { return m }
+        return wander
+    }
+
+    /// Look at the mouse when it's reasonably close to the owl.
+    private var mouseLook: CGPoint? {
+        let f = PetGeometry.frame
+        guard f.width > 0 else { return nil }
+        let m = NSEvent.mouseLocation
+        let eyes = CGPoint(x: f.midX, y: f.minY + f.height * 0.55)
+        let dx = m.x - eyes.x, dy = m.y - eyes.y
+        let dist = (dx * dx + dy * dy).squareRoot()
+        guard dist < 700, dist > 12 else { return nil }
+        let k = min(1, dist / 220)
+        return CGPoint(x: dx / dist * k, y: -dy / dist * k)
+    }
+
+    /// Idle glances: hold a spot, then dart to a new one (like real eyes).
+    private var wander: CGPoint {
+        func spot(_ n: Double) -> CGPoint {
+            func r(_ s: Double) -> Double { let v = sin(n * 12.9898 + s) * 43758.5453; return (v - v.rounded(.down)) * 2 - 1 }
+            return CGPoint(x: r(1) * 0.8, y: r(2) * 0.5)
+        }
+        let period = 2.4
+        let seg = (t / period).rounded(.down)
+        let p = min(1, (t / period - seg) * 7)   // quick dart, then hold
+        let a = spot(seg - 1), b = spot(seg)
+        return CGPoint(x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p)
+    }
+
+    private var pupilRatio: CGFloat {
+        if surprised { return 0.4 }
+        switch mood {
+        case .working: return 0.5
+        case .thinking: return 0.56
+        case .sad: return 0.72
+        case .sleepy: return 0.66
+        default: return 0.7 + CGFloat(sin(t * 0.9)) * 0.03   // slow, relaxed "breathing" pupils
+        }
+    }
+
+    /// Repaints the eye white and draws a moving iris + pupil, clipped to the eye.
+    private func liveEye(_ r: CGRect, in size: CGSize, look: CGPoint, isRight: Bool) -> some View {
+        let w = r.width * size.width, h = r.height * size.height
+        let cx = r.minX * size.width, cy = r.minY * size.height
+        let irisH = h * 0.6
+        let squash: CGFloat = isRight ? 0.86 : 1      // the right eye turns away a little
+        let irisW = irisH * squash
+        let maxX = max(0, (w - irisW) / 2 * 0.8), maxY = max(0, (h - irisH) / 2 * 0.72)
+        return ZStack {
+            Ellipse()
+                .fill(RadialGradient(colors: [Color(white: 0.99), Color(white: 0.94), Color(white: 0.80)],
+                                     center: UnitPoint(x: 0.45, y: 0.42), startRadius: 0, endRadius: max(w, h) * 0.58))
+                .frame(width: w * 0.97, height: h * 0.97)
+            Ellipse()
+                .fill(LinearGradient(colors: [Color.black.opacity(0.22), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.45)))
+                .frame(width: w * 0.97, height: h * 0.97)
+            iris(size: irisH)
+                .scaleEffect(x: squash, y: 1)
+                .offset(x: look.x * maxX, y: look.y * maxY)
+        }
+        .frame(width: w * 0.97, height: h * 0.97)
+        .clipShape(Ellipse())
+        .position(x: cx, y: cy)
+    }
+
+    private func iris(size d: CGFloat) -> some View {
+        ZStack {
+            Circle().fill(RadialGradient(colors: [Color(red: 0.30, green: 0.13, blue: 0.04), Color(red: 0.66, green: 0.33, blue: 0.11),
+                                                  Color(red: 0.42, green: 0.17, blue: 0.05)],
+                                         center: .center, startRadius: 0, endRadius: d / 2))
+            ForEach(0..<14, id: \.self) { i in
+                Capsule().fill(Color(red: 0.85, green: 0.55, blue: 0.25).opacity(0.25))
+                    .frame(width: d * 0.02, height: d * 0.16)
+                    .offset(y: -d * 0.36)
+                    .rotationEffect(.degrees(Double(i) * 360 / 14))
+            }
+            Circle().stroke(Color(red: 0.16, green: 0.06, blue: 0.02), lineWidth: d * 0.07)
+            Circle().fill(Color.black).frame(width: d * pupilRatio, height: d * pupilRatio)
+            Ellipse().fill(Color.white.opacity(0.95)).frame(width: d * 0.27, height: d * 0.21).offset(x: -d * 0.16, y: -d * 0.19)
+            Circle().fill(Color.white.opacity(0.85)).frame(width: d * 0.09, height: d * 0.09).offset(x: d * 0.19, y: d * 0.15)
+        }
+        .frame(width: d, height: d)
+    }
+
+    /// Beak opens and closes while Kiri speaks out loud.
+    private func talkingBeak(in size: CGSize) -> some View {
+        let open = CGFloat(abs(sin(t * 15)) * (0.65 + 0.35 * sin(t * 2.7)))
+        let x = Self.beakTip.x * size.width, tipY = Self.beakTip.y * size.height
+        let gapH = size.height * 0.05 * open
+        return ZStack {
+            // dark open mouth just under the upper beak
+            Ellipse().fill(LinearGradient(colors: [Color(red: 0.22, green: 0.05, blue: 0.08), Color(red: 0.45, green: 0.12, blue: 0.16)],
+                                          startPoint: .top, endPoint: .bottom))
+                .frame(width: size.width * 0.07, height: max(0.5, gapH))
+                .position(x: x, y: tipY - size.height * 0.004 + gapH / 2)
+            // lower beak drops as the mouth opens
+            BeakTip().fill(LinearGradient(colors: [Color(red: 0.90, green: 0.70, blue: 0.48), Color(red: 0.68, green: 0.46, blue: 0.28)],
+                                          startPoint: .top, endPoint: .bottom))
+                .frame(width: size.width * 0.055, height: size.height * 0.028)
+                .position(x: x, y: tipY + gapH * 0.9)
+        }
     }
 
     /// An eyelid made of the owl's own fur: the cheek fur just below the eye is copied up
@@ -271,5 +409,17 @@ struct Confetti: View {
                 .opacity(sin(ph * .pi))
             }
         }
+    }
+}
+
+/// Small downward triangle: the lower half of the beak when it opens.
+struct BeakTip: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.minY), control: CGPoint(x: r.midX, y: r.maxY * 2 - r.minY))
+        p.closeSubpath()
+        return p
     }
 }

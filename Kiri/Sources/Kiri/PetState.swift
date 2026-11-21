@@ -14,7 +14,14 @@ final class PetState: ObservableObject {
     @Published var mood: Mood = .idle
     @Published var bubble: String?
     @Published var offerFix = false
-    @Published var chatOpen = false { didSet { if chatOpen != oldValue { onChatToggle?(chatOpen) } } }
+    @Published var chatOpen = false {
+        didSet {
+            guard chatOpen != oldValue else { return }
+            onChatToggle?(chatOpen)
+            PetSignals.shared.chatOpen = chatOpen
+            if chatOpen { PetSignals.shared.surprise(for: 0.45) }   // perks up when you open the chat
+        }
+    }
     @Published var messages: [ChatMessage] = []
     @Published var activity: String?
     @Published var busy = false
@@ -100,15 +107,18 @@ final class PetState: ObservableObject {
         return h >= 23 || h < 5
     }
 
-    /// Kiri's app ID changed from local.kiri.pet to app.kiri.hoot (a clean slate for macOS permissions).
+    /// Kiri's app ID changed (local.kiri.pet → app.kiri.hoot → app.kiri.owl) for a clean slate with macOS permissions.
     /// Carry the old settings over once.
     private static func migrateOldSettings() {
         let d = UserDefaults.standard
-        guard !d.bool(forKey: "migratedFromLocalKiriPet"), let old = UserDefaults(suiteName: "local.kiri.pet") else { return }
-        for key in ["projectPath", "allowEdits", "speakReplies", "character", "watchTests", "displayMode"] {
-            if d.object(forKey: key) == nil, let v = old.object(forKey: key) { d.set(v, forKey: key) }
+        guard !d.bool(forKey: "migratedOldSettings") else { return }
+        for suite in ["app.kiri.hoot", "local.kiri.pet"] {          // newest first
+            guard let old = UserDefaults(suiteName: suite) else { continue }
+            for key in ["projectPath", "allowEdits", "speakReplies", "character", "watchTests", "displayMode"] {
+                if d.object(forKey: key) == nil, let v = old.object(forKey: key) { d.set(v, forKey: key) }
+            }
         }
-        d.set(true, forKey: "migratedFromLocalKiriPet")
+        d.set(true, forKey: "migratedOldSettings")
     }
 
     init() {
@@ -311,6 +321,7 @@ final class PetState: ObservableObject {
             } else {
                 self.streak = 0
                 if silent && !changed && !self.offerFix { self.mood = .sad; self.bubble = nil; return }  // still red: no repeat nag
+                PetSignals.shared.surprise(for: 0.8)
                 self.mood = .sad
                 self.fixRequest = nil
                 self.offerFix = true
@@ -464,6 +475,7 @@ final class PetState: ObservableObject {
         case .session(let id):
             sessionID = id
         case .text(let t):
+            if mood != .thinking { PetSignals.shared.surprise(for: 0.5) }   // "oh!" when an answer starts
             let (actions, cleaned) = MacAction.extract(from: t)
             pendingActions += actions
             if !cleaned.isEmpty { messages.append(ChatMessage(role: .kiri, text: cleaned)) }

@@ -264,7 +264,16 @@ enum ConceptSheet {
             }
         }
         let sheet = VStack(alignment: .leading, spacing: 22) {
-            row("Hoot", "Purple owl with blinking eyelids and mood poses") { OwlFrame(mood: $0, t: 0.6) }
+            row("Hoot moods", "Live eyes: thinking looks up, working reads, sad looks down") { OwlFrame(mood: $0, t: 2.1, followMouse: false) }
+            row("Hoot talking", "Beak opens and closes while Kiri speaks") { m in
+                let i = Double(Mood.allCases.firstIndex(of: m) ?? 0)
+                OwlFrame(mood: .idle, t: 1.05 + i * 0.037, followMouse: false, lookOverride: CGPoint(x: 0, y: 0.1), previewTalking: true)
+            }
+            row("Hoot looking around", "Eyes follow your mouse: left · right · up · down · close · far") { m in
+                let looks: [Mood: CGPoint] = [.idle: CGPoint(x: -1, y: 0), .thinking: CGPoint(x: 1, y: 0), .working: CGPoint(x: 0, y: -1),
+                                              .happy: CGPoint(x: 0, y: 1), .sad: CGPoint(x: -0.6, y: 0.6), .sleepy: CGPoint(x: 0.7, y: -0.6)]
+                OwlFrame(mood: .idle, t: 1.0, followMouse: false, lookOverride: looks[m])
+            }
         }
         .padding(28)
         .background(LinearGradient(colors: [Color(red: 0.11, green: 0.12, blue: 0.17), Color(red: 0.06, green: 0.07, blue: 0.10)],

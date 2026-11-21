@@ -35,6 +35,12 @@ final class PetSignals: ObservableObject {
     /// Unplugged and at or below the low-battery threshold.
     @Published var batteryLow = false
     @Published var batteryPercent = 100
+    /// Wide-eyed "oh!" until this moment.
+    @Published var surprisedUntil = Date.distantPast
+    /// Chat panel is open (the owl looks up at it).
+    @Published var chatOpen = false
+
+    func surprise(for seconds: Double = 0.7) { surprisedUntil = Date().addingTimeInterval(seconds) }
 }
 
 /// Blinking red battery shown above the owl when the battery is low.

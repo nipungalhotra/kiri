@@ -5,7 +5,7 @@
 #   ./make-app.sh --install  build and move into /Applications
 set -e
 cd "${0:A:h}"
-VERSION="1.1.2"
+VERSION="1.1.3"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>Kiri</string>
   <key>CFBundleDisplayName</key><string>Kiri</string>
-  <key>CFBundleIdentifier</key><string>app.kiri.hoot</string>
+  <key>CFBundleIdentifier</key><string>app.kiri.owl</string>
   <key>CFBundleExecutable</key><string>Kiri</string>
   <key>CFBundleIconFile</key><string>Kiri</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -50,8 +50,10 @@ SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Kiri Loc
 if [[ -n "$SIGN_ID" ]] && codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null; then
   echo "Signed with Kiri Local Signing"
 else
-  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
-  echo "Signed ad-hoc (permissions may need re-granting after each build)"
+  # Ad-hoc, but with a requirement that names only the app ID (not this exact build), so macOS
+  # keeps Kiri's permissions (Screen Recording, Downloads...) across rebuilds.
+  codesign --force --deep --sign - -r='designated => identifier "app.kiri.owl"' "$APP" >/dev/null 2>&1 || true
+  echo "Signed ad-hoc with a stable requirement (permissions survive rebuilds)"
 fi
 echo "Built $(pwd)/$APP  ($(lipo -archs "$APP/Contents/MacOS/Kiri"))"
 
