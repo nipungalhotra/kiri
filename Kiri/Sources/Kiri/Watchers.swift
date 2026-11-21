@@ -102,7 +102,10 @@ final class TerminalWatcher {
         self.onFailure = onFailure
         let fm = FileManager.default
         if !fm.fileExists(atPath: Self.eventsFile.path) { fm.createFile(atPath: Self.eventsFile.path, contents: nil) }
-        offset = (try? fm.attributesOfItem(atPath: Self.eventsFile.path)[.size] as? UInt64) ?? 0
+        // Failed commands are private: don't keep old ones around, only watch for new ones.
+        if let h = try? FileHandle(forWritingTo: Self.eventsFile) { try? h.truncate(atOffset: 0); try? h.close() }
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.eventsFile.path)
+        offset = 0
         let fd = open(Self.eventsFile.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend], queue: .main)
@@ -118,6 +121,8 @@ final class TerminalWatcher {
         try? h.seek(toOffset: offset)
         let data = h.readDataToEndOfFile()
         offset += UInt64(data.count)
+        // Clear what we've read so commands don't pile up on disk (the hook appends, so new lines still land).
+        if let wh = try? FileHandle(forWritingTo: Self.eventsFile) { try? wh.truncate(atOffset: 0); try? wh.close(); offset = 0 }
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
             let f = line.split(separator: "\t", maxSplits: 2).map(String.init)
             guard f.count == 3, let code = Int(f[0]) else { continue }

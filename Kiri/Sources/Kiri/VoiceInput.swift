@@ -94,7 +94,7 @@ final class VoiceInput: ObservableObject {
         request = nil
         level = 0
         let words = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        Log.write("listening done: \"\(words.prefix(120))\" send=\(send)")
+        Log.write("listening done: \(Log.secret(words, max: 120)) send=\(send)")
         if send { onFinished?(words) }
     }
 

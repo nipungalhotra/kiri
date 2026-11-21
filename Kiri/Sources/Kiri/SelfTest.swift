@@ -53,6 +53,8 @@ enum SelfTest {
         }
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         check("reads failed terminal command", got?.command == "npm run build" && got?.code == 1 && tw != nil)
+        let left = (try? FileManager.default.attributesOfItem(atPath: TerminalWatcher.eventsFile.path)[.size] as? UInt64) ?? 99
+        check("terminal command cleared from disk after reading", left == 0)
 
         // wake phrase variants, and no false trigger on ordinary speech
         func wakes(_ t: String) -> Bool { WakeWord.wakePattern.firstMatch(in: t, range: NSRange(location: 0, length: (t as NSString).length)) != nil }
@@ -70,6 +72,20 @@ enum SelfTest {
         check("answer mentioning /login stays an answer", ev.contains { if case .done = $0 { return true }; return false })
         let authErr = #"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login","session_id":"x"}"#
         check("real sign-in error detected", ClaudeRunner.parse(Data(authErr.utf8)).contains { if case .failed = $0 { return true }; return false })
+
+        // 9. links and apps Claude picks on its own need an OK; ones you named don't
+        let url = MacAction(kind: "open_url", args: ["url": "https://evil.example.com/x"])
+        check("unasked link needs approval", MacActions.approvalQuestion(for: url, userSaid: "summarize this page") != nil)
+        let gh = MacAction(kind: "open_url", args: ["url": "https://www.github.com/nipungalhotra/kiri"])
+        check("link you named opens directly", MacActions.approvalQuestion(for: gh, userSaid: "open github.com please") == nil)
+        let app = MacAction(kind: "open_app", args: ["name": "Terminal"])
+        check("unasked app needs approval", MacActions.approvalQuestion(for: app, userSaid: "what's on my screen?") != nil)
+        check("app you named opens directly", MacActions.approvalQuestion(for: app, userSaid: "Open terminal") == nil)
+
+        // 10. logs stay private
+        check("prompt text not logged", !Log.secret("my bank password is hunter2").contains("hunter2") || Log.verbose)
+        let red = Log.redact("key sk-ant-api03-abcdefghijklmnop and token=ghp_abcdefghijklmnopqrstuvwx1234 password: hunter2")
+        check("secrets masked", !red.contains("abcdefghijklmnop") && !red.contains("hunter2") && !red.contains("ghp_"))
 
         // 8. battery read works (or no battery)
         let b = Battery.read()

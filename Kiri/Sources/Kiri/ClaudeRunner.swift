@@ -127,17 +127,17 @@ final class ClaudeRunner {
         let deliver: (ClaudeEvent) -> Void = { e in
             switch e {
             case .session(let id): Log.write("claude session \(id)")
-            case .text(let t): Log.write("claude text: \(t.prefix(300))")
+            case .text(let t): Log.write("claude text: \(Log.secret(t))")
             case .tool(let what): Log.write("claude tool: \(what)")
-            case .done(let r, let err, let denied): Log.write("claude done error=\(err) denied=\(denied): \((r ?? "").prefix(300))")
+            case .done(let r, let err, let denied): Log.write("claude done error=\(err) denied=\(denied): \(Log.secret(r ?? ""))")
             case .failed(let why): Log.write("claude FAILED: \(why)")
             case .retry(let n): Log.write("claude retry \(n)")
-            case .toolCall(let id, let name, let detail): Log.write("claude toolCall \(id) \(name): \(detail.prefix(160))")
+            case .toolCall(let id, let name, let detail): Log.write("claude toolCall \(id) \(name): \(Log.secret(detail, max: 160))")
             case .denied(let id, let tool): Log.write("claude denied \(id) \(tool)")
             }
             DispatchQueue.main.async { onEvent(e) }
         }
-        Log.write("claude start exe=\(Self.claudePath ?? "nil") cwd=\(cwd.path) edits=\(allowEdits) resume=\(sessionID ?? "-") prompt=\(prompt.prefix(120))")
+        Log.write("claude start exe=\(Self.claudePath ?? "nil") cwd=\(cwd.path) edits=\(allowEdits) resume=\(sessionID ?? "-") prompt=\(Log.secret(prompt, max: 120))")
         guard let exe = Self.claudePath else {
             deliver(.failed("I can't find the `claude` command. Install Claude Code first, then restart me."))
             return
@@ -241,7 +241,7 @@ final class ClaudeRunner {
             if sub != "init" {
                 // retries, hook messages, etc. — record the raw line so problems are visible in the log
                 let raw = String(data: line, encoding: .utf8) ?? ""
-                Log.write("claude system \(sub): \(raw.prefix(500))")
+                Log.write("claude system \(sub): \(Log.secret(raw, max: 500))")
             }
             if sub == "api_retry" { return [.retry(obj["attempt"] as? Int ?? 1)] }
             if sub == "permission_denied" {

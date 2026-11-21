@@ -286,6 +286,7 @@ enum KiriApp {
             return
         }
         if args.contains("--selftest") { SelfTest.run(); return }
+        Log.prepare()
         if let i = args.firstIndex(of: "--wake-probe"), i + 1 < args.count {
             WakeProbe.run(args[i + 1])
             RunLoop.main.run()

@@ -39,6 +39,29 @@ enum MacActions {
         }
     }
 
+    // MARK: Approval for actions the user didn't clearly ask for
+
+    /// Claude's reply can be steered by what it reads (a web page, a README, a screenshot), so an
+    /// app or link is opened without asking only when the user's own message names it.
+    /// Returns the question to ask, or nil when the action can run straight away.
+    static func approvalQuestion(for a: MacAction, userSaid: String) -> (title: String, detail: String, allow: String)? {
+        let said = userSaid.lowercased()
+        switch a.kind {
+        case "open_app":
+            let name = (a.args["name"] as? String ?? "").replacingOccurrences(of: ".app", with: "")
+            if !name.isEmpty, said.contains(name.lowercased()) { return nil }
+            return ("Open \(name)?", "Kiri wants to open the app “\(name)”. You didn't mention it, so it's asking first.", "Open")
+        case "open_url":
+            let s = a.args["url"] as? String ?? ""
+            let host = (URL(string: s)?.host ?? "").lowercased()
+            let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            if !bare.isEmpty, said.contains(bare) { return nil }
+            return ("Open this link?", "Kiri wants to open:\n\n\(s.prefix(300))\n\nOnly allow it if you trust this site.", "Open Link")
+        default:
+            return nil   // reminders are harmless, focus is reversible, organize asks on its own
+        }
+    }
+
     // MARK: Apps & links
 
     static func openApp(_ name: String) -> String {

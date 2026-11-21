@@ -64,7 +64,7 @@ enum Approval {
         a.addButton(withTitle: allow)
         a.addButton(withTitle: "Don't Allow")
         let ok = a.runModal() == .alertFirstButtonReturn
-        Log.write("approval '\(title)' -> \(ok ? "allowed" : "denied")")
+        Log.write("approval \(Log.secret(title, max: 80)) -> \(ok ? "allowed" : "denied")")
         return ok
     }
 }

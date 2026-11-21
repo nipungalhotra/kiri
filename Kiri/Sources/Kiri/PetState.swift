@@ -402,7 +402,7 @@ final class PetState: ObservableObject {
     }
 
     private func terminalFailed(_ f: TerminalWatcher.Failure) {
-        Log.write("terminal command failed (\(f.code)): \(f.command.prefix(120)) in \(f.dir)")
+        Log.write("terminal command failed (\(f.code)): \(Log.secret(f.command, max: 120))")
         guard !busy, !offerFix else { return }
         let dir = URL(fileURLWithPath: f.dir)
         fixRequest = (
@@ -601,10 +601,16 @@ final class PetState: ObservableObject {
     // MARK: Mac actions & approvals
 
     private func runActions(_ actions: [MacAction]) async {
+        let userSaid = messages.last { $0.role == .user }?.text ?? ""
         for a in actions {
+            if let q = MacActions.approvalQuestion(for: a, userSaid: userSaid),
+               !Approval.ask(q.title, q.detail, allow: q.allow) {
+                note("🦉 Okay, I didn't do that.")
+                continue
+            }
             mood = .working
             let result = await MacActions.run(a)
-            Log.write("action \(a.kind) -> \(result)")
+            Log.write("action \(a.kind) -> \(Log.secret(result))")
             note("🦉 \(result)")
             say(result, for: 5)
             if speakReplies { Voice.shared.speak(result) }
