@@ -411,14 +411,8 @@ final class PetState: ObservableObject {
             startClaude(text, dir: dir, extraAllowedTools: extraAllowedTools, forceEdits: forceEdits, addDirs: [])
             return
         }
-        guard ScreenHelp.hasPermission else {
-            ScreenHelp.requestPermission()
-            busy = false
-            activity = nil
-            note("To see your screen I need Screen Recording permission: System Settings → Privacy & Security → Screen & System Audio Recording → turn on Kiri, then quit and reopen Kiri and ask again.")
-            say("I need permission to see your screen 🙈", mood: .sad, for: 6)
-            return
-        }
+        // Just try: the "do I have permission?" check can say no on recent macOS even when access is granted.
+        Log.write("screen preflight=\(ScreenHelp.hasPermission)")
         Task { @MainActor in
             do {
                 let shot = try await ScreenHelp.capture()
@@ -427,10 +421,12 @@ final class PetState: ObservableObject {
                 startClaude(withShot, dir: dir, extraAllowedTools: extraAllowedTools + ["Read(\(ScreenHelp.folder.path)/**)"],
                             forceEdits: forceEdits, addDirs: [ScreenHelp.folder])
             } catch {
+                Log.write("screenshot failed: \(error.localizedDescription)")
                 busy = false
                 activity = nil
-                note("Couldn't take a screenshot: \(error.localizedDescription)")
-                feel(.sad, for: 3)
+                ScreenHelp.requestPermission()
+                note("To see your screen I need Screen Recording permission: System Settings → Privacy & Security → Screen & System Audio Recording → turn on Kiri, then quit and reopen Kiri and ask again.")
+                say("I need permission to see your screen 🙈", mood: .sad, for: 6)
             }
         }
     }

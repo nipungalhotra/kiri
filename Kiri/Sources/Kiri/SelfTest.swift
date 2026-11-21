@@ -54,6 +54,13 @@ enum SelfTest {
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         check("reads failed terminal command", got?.command == "npm run build" && got?.code == 1 && tw != nil)
 
+        // 8. a normal answer mentioning /login is not mistaken for a sign-in error
+        let normal = #"{"type":"result","subtype":"success","is_error":false,"result":"You're reading a chat about running /login in Terminal.","session_id":"x"}"#
+        let ev = ClaudeRunner.parse(Data(normal.utf8))
+        check("answer mentioning /login stays an answer", ev.contains { if case .done = $0 { return true }; return false })
+        let authErr = #"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login","session_id":"x"}"#
+        check("real sign-in error detected", ClaudeRunner.parse(Data(authErr.utf8)).contains { if case .failed = $0 { return true }; return false })
+
         // 8. battery read works (or no battery)
         let b = Battery.read()
         check("battery readable (\(b.map { "\($0.percent)% onBattery=\($0.onBattery)" } ?? "no battery"))", true)

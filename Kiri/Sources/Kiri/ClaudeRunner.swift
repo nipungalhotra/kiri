@@ -199,13 +199,13 @@ final class ClaudeRunner {
                             deliver(.failed(Self.signInHelp))
                             continue
                         }
-                        if case .done = e { sawResult = true }
+                        if case .done = e { sawResult = true }; if case .failed = e { sawResult = true }
                         deliver(e)
                     }
                 }
                 if final, !buffer.isEmpty {
                     for e in Self.parse(buffer) {
-                        if case .done = e { sawResult = true }
+                        if case .done = e { sawResult = true }; if case .failed = e { sawResult = true }
                         deliver(e)
                     }
                     buffer.removeAll()
@@ -270,8 +270,10 @@ final class ClaudeRunner {
             if let s = obj["session_id"] as? String { events.append(.session(s)) }
             let denied = (obj["permission_denials"] as? [Any])?.count ?? 0
             let result = obj["result"] as? String
-            if let r = result, r.localizedCaseInsensitiveContains("not logged in") || r.contains("/login")
-                || r.localizedCaseInsensitiveContains("invalid api key") || r.localizedCaseInsensitiveContains("failed to authenticate") {
+            // Only Claude Code's own short auth errors — not a normal answer that happens to mention "/login".
+            let isError = (obj["is_error"] as? Bool) ?? false
+            if let r = result, r.count < 240, isError || r.hasPrefix("Not logged in") || r.hasPrefix("Invalid API key")
+                || r.hasPrefix("Failed to authenticate") || r.contains("Please run /login") {
                 events.append(.failed(signInHelp))
             } else {
                 events.append(.done(result, isError: (obj["is_error"] as? Bool) ?? false, denied: denied))

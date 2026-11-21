@@ -4,7 +4,7 @@
 #   ./make-app.sh --fast   quicker build for this Mac only
 set -e
 cd "${0:A:h}"
-VERSION="1.1"
+VERSION="1.1.1"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -44,5 +44,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+# Sign with the stable local identity if present, so macOS keeps Kiri's permissions across rebuilds.
+SIGN_ID=$(security find-identity -p codesigning 2>/dev/null | awk '/"Kiri Local Signing"/ {print $2; exit}')
+if [[ -n "$SIGN_ID" ]] && codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null; then
+  echo "Signed with Kiri Local Signing"
+else
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+  echo "Signed ad-hoc (permissions may need re-granting after each build)"
+fi
 echo "Built $(pwd)/$APP  ($(lipo -archs "$APP/Contents/MacOS/Kiri"))"

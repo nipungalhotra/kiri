@@ -29,7 +29,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="docs/kiri-notch.png" width="420"> | <img src="docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.1.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.1.1.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -63,7 +63,7 @@ See **[DEMO.md](DEMO.md)** for a shot-by-shot 30-second demo video script.
 ```bash
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
-./make-dmg.sh          # dist/Kiri-1.1.dmg installer
+./make-dmg.sh          # dist/Kiri-1.1.1.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 
@@ -90,6 +90,8 @@ Other looks (Orbi, Wisp, Termi, Iris, Nimbus, Bubbles, Prism, Sprout) are under 
 - **Owl thinks forever / "can't reach Claude":** sign in with `claude --setting-sources project,local` → `/login`. Kiri skips a `~/.claude/settings.json` redirect to a local server that isn't running.
 - **Folder permission prompt keeps returning:** unsigned rebuilds look like a new app to macOS. Click Allow once per build.
 - **Log:** `~/Library/Logs/Kiri.log` records clicks, Claude requests and test runs.
+- **Screen help says it needs permission even though Kiri is switched on:** remove Kiri from *Screen & System Audio Recording* with **–**, re-add `Kiri.app` with **+**, and reopen Kiri. If you build Kiri yourself with the local signing certificate, macOS may also require you to trust that certificate for code signing (Keychain Access → *Kiri Local Signing* → Trust → Code Signing: Always Trust).
+- **Keep permissions across your own rebuilds:** `make-app.sh` signs with a local identity named *Kiri Local Signing* when you have one in your keychain, so macOS remembers Kiri's permissions.
 
 ---
 Made with SwiftUI and Claude Code.
