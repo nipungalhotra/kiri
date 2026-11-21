@@ -5,7 +5,7 @@
 #   ./make-app.sh --install  build and move into /Applications
 set -e
 cd "${0:A:h}"
-VERSION="1.1.3"
+VERSION="1.2"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -39,6 +39,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Kiri listens when you press ⌥Space or the mic button, so you can give voice commands.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Kiri turns your voice commands into text (on your Mac when possible).</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
   <key>NSRemindersUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
   <key>NSHumanReadableCopyright</key><string>Kiri — a desktop pet that codes with you.</string>

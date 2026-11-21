@@ -54,6 +54,16 @@ enum SelfTest {
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         check("reads failed terminal command", got?.command == "npm run build" && got?.code == 1 && tw != nil)
 
+        // wake phrase variants, and no false trigger on ordinary speech
+        func wakes(_ t: String) -> Bool { WakeWord.wakePattern.firstMatch(in: t, range: NSRange(location: 0, length: (t as NSString).length)) != nil }
+        check("hears 'Hey Hoot' variants", wakes("Hey Hoot open Safari") && wakes("hey hood, what's up") && wakes("Play hold open the calculator") && wakes("Hey ho open the calculator"))
+        check("hears 'Hey Kiri' variants", wakes("Hey Kiri open notes") && wakes("Hey Carrie open the calculator"))
+        func cmd(_ t: String) -> String? { WakeWord.commandOffset(in: t).map { String(t.dropFirst($0)).trimmingCharacters(in: .whitespaces) } }
+        check("'Hey' + command when Hoot is dropped", cmd("Hey open the calculator app") == "open the calculator app")
+        check("'Hey' alone wakes", cmd("Hey") == "")
+        check("chat with 'hey' doesn't wake", cmd("hey how are you doing") == nil && cmd("they open the door") == nil)
+        check("ignores Hey Siri and normal speech", !wakes("Hey Siri open the calculator") && !wakes("I want to open the calculator") && !wakes("the hoot owl is cute"))
+
         // 8. a normal answer mentioning /login is not mistaken for a sign-in error
         let normal = #"{"type":"result","subtype":"success","is_error":false,"result":"You're reading a chat about running /login in Terminal.","session_id":"x"}"#
         let ev = ClaudeRunner.parse(Data(normal.utf8))

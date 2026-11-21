@@ -3,7 +3,7 @@
 # and a "Read Me First" guide.
 set -e
 cd "${0:A:h}"
-VERSION="1.1.3"
+VERSION="1.2"
 ./make-app.sh
 
 STAGE=$(mktemp -d)

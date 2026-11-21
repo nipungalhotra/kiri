@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import SwiftUI
 
@@ -101,7 +102,7 @@ final class PetWindowController {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: PetWindowController!
     private var statusItem: NSStatusItem!
     private var state: PetState!
@@ -127,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("What's on My Screen?", #selector(askScreen))
         add("Set Up Terminal Watching…", #selector(terminalSetup))
         menu.addItem(.separator())
+        let voiceItem = menu.addItem(withTitle: "Voice", action: nil, keyEquivalent: "")
+        voiceItem.submenu = voiceMenu
+        voiceMenu.delegate = self
         let displayItem = menu.addItem(withTitle: "Display", action: nil, keyEquivalent: "")
         displayMenu.autoenablesItems = false
         displayItem.submenu = displayMenu
@@ -143,6 +147,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.greet()
     }
 
+    // MARK: Voice menu (rebuilt each time it opens)
+
+    private let voiceMenu = NSMenu()
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === voiceMenu else { return }
+        menu.removeAllItems()
+        let listen = menu.addItem(withTitle: "Listen when I press ⌥Space", action: #selector(toggleListen), keyEquivalent: "")
+        listen.target = self
+        listen.state = state.listenOnHotkey ? .on : .off
+        let hey = menu.addItem(withTitle: "Listen for “Hey Hoot”", action: #selector(toggleHeyHoot), keyEquivalent: "")
+        hey.target = self
+        hey.state = state.heyHoot ? .on : .off
+        menu.addItem(.separator())
+        let header = menu.addItem(withTitle: "Hoot's voice", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        let current = Voice.chosenVoice?.identifier
+        for v in Voice.femaleVoices {
+            let q = v.quality == .premium ? " (premium)" : (v.quality == .enhanced ? " (enhanced)" : "")
+            let item = menu.addItem(withTitle: "\(v.name) — \(v.language)\(q)", action: #selector(pickVoice(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = v.identifier
+            item.state = v.identifier == current ? .on : .off
+        }
+        menu.addItem(.separator())
+        let more = menu.addItem(withTitle: "Get nicer voices…", action: #selector(openVoiceSettings), keyEquivalent: "")
+        more.target = self
+    }
+
+    @objc private func toggleListen() { state.listenOnHotkey.toggle() }
+    @objc private func toggleHeyHoot() { state.heyHoot.toggle() }
+    @objc private func pickVoice(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let v = AVSpeechSynthesisVoice(identifier: id) else { return }
+        Voice.choose(v)
+    }
+    @objc private func openVoiceSettings() {
+        // Accessibility → Spoken Content, where Premium/Enhanced voices (e.g. Ava, Zoe, Isha) can be downloaded.
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess?SpokenContent") { NSWorkspace.shared.open(u) }
+    }
+
     // MARK: Hotkey
 
     private var hotKey: GlobalHotKey?
@@ -151,11 +195,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func hotKeyPressed() {
         Log.write("hotkey pressed (chatOpen was \(state.chatOpen))")
         if let n = notchController { n.show() } else { controller.show() }
-        if state.chatOpen {
-            state.chatOpen = false
-        } else {
+        if VoiceInput.shared.listening {
+            VoiceInput.shared.finish(send: true)      // pressed again while listening: send now
+        } else if state.listenOnHotkey {
             NSApp.activate(ignoringOtherApps: true)
             state.chatOpen = true
+            state.listen()                            // always listen, even if the chat is already open
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            state.chatOpen.toggle()
         }
     }
 
@@ -238,6 +286,11 @@ enum KiriApp {
             return
         }
         if args.contains("--selftest") { SelfTest.run(); return }
+        if let i = args.firstIndex(of: "--wake-probe"), i + 1 < args.count {
+            WakeProbe.run(args[i + 1])
+            RunLoop.main.run()
+            return
+        }
         if let i = args.firstIndex(of: "--gif"), i + 1 < args.count {
             GifExport.render(to: URL(fileURLWithPath: args[i + 1]))
             return

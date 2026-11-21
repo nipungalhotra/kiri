@@ -51,6 +51,14 @@ final class PetState: ObservableObject {
         didSet { UserDefaults.standard.set(style.rawValue, forKey: "character") }
     }
 
+    /// ⌥Space starts listening for a voice command (turn off if you prefer typing / Wispr Flow).
+    @Published var listenOnHotkey: Bool {
+        didSet { UserDefaults.standard.set(listenOnHotkey, forKey: "listenOnHotkey") }
+    }
+    /// Always listen for "Hey Hoot" (on-device).
+    @Published var heyHoot: Bool {
+        didSet { UserDefaults.standard.set(heyHoot, forKey: "heyHoot"); WakeWord.shared.setEnabled(heyHoot) }
+    }
     /// Mouse is over the notch island (notch mode only).
     @Published var notchHover = false
 
@@ -127,6 +135,8 @@ final class PetState: ObservableObject {
         speakReplies = UserDefaults.standard.object(forKey: "speakReplies") as? Bool ?? true
         style = CharacterStyle(rawValue: UserDefaults.standard.string(forKey: "character") ?? "") ?? .owl
         watchTests = UserDefaults.standard.bool(forKey: "watchTests")
+        listenOnHotkey = UserDefaults.standard.object(forKey: "listenOnHotkey") as? Bool ?? true
+        heyHoot = UserDefaults.standard.object(forKey: "heyHoot") as? Bool ?? true
         if let path = UserDefaults.standard.string(forKey: "projectPath"),
            FileManager.default.fileExists(atPath: path) {
             projectURL = URL(fileURLWithPath: path)
@@ -138,6 +148,28 @@ final class PetState: ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.checkBattery() }
         updateWatcher()
         terminalWatcher = TerminalWatcher { [weak self] failure in self?.terminalFailed(failure) }
+        setUpWakeWord()
+    }
+
+    /// "Hey Hoot, …" → send the rest; "Hey Hoot" alone → listen for the command.
+    private func setUpWakeWord() {
+        let wake = WakeWord.shared
+        wake.isBusy = { [weak self] in self?.busy ?? false }
+        wake.onHeardName = {
+            PetSignals.shared.surprise(for: 0.6)
+            NSSound(named: "Tink")?.play()
+        }
+        wake.onWake = { [weak self] rest in
+            guard let self else { return }
+            if self.busy { self.say("One sec, I'm still working 🦉", for: 3); return }
+            self.chatOpen = true
+            if rest.split(separator: " ").count >= 2 {
+                self.send(rest)
+            } else {
+                self.listen()
+            }
+        }
+        DispatchQueue.main.async { wake.setEnabled(self.heyHoot) }
     }
 
     // MARK: Feelings & speech
@@ -399,6 +431,45 @@ final class PetState: ObservableObject {
             say("I'm watching your terminal now 👀", for: 4)
         } catch {
             note("Couldn't add the terminal hook: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: Voice commands
+
+    /// Start listening; when you stop talking, the words are sent to Claude automatically.
+    func listen() {
+        let mic = VoiceInput.shared
+        if mic.listening { mic.finish(send: true); return }   // second press: send now
+        guard !busy else { say("One sec, I'm still working 🦉", for: 3); return }
+        chatOpen = true
+        mic.onFinished = { [weak self] words in
+            guard let self else { return }
+            self.activity = nil
+            if words.isEmpty {
+                self.settle()
+                self.say("I didn't catch that 🙉 press ⌥Space and try again", for: 4)
+            } else {
+                self.send(words)
+            }
+        }
+        Task { @MainActor in
+            do {
+                try await mic.start()
+                self.mood = .working          // headphones on: listening
+                self.activity = "Listening… just talk, I'll send when you stop"
+                if !self.chatOpen { self.say("Listening… 🎧", for: nil) }
+            } catch {
+                self.activity = nil
+                let why: String
+                switch error as? VoiceInput.Problem {
+                case .noSpeechPermission?: why = "I need Speech Recognition permission: System Settings → Privacy & Security → Speech Recognition → turn on Kiri."
+                case .noMicPermission?: why = "I need the microphone: System Settings → Privacy & Security → Microphone → turn on Kiri."
+                case .unavailable?: why = "Speech recognition isn't available right now. Check your internet or try again."
+                default: why = "I couldn't start listening: \(error.localizedDescription)"
+                }
+                self.note(why)
+                self.say("I can't hear you yet 🙉", mood: .sad, for: 5)
+            }
         }
     }
 

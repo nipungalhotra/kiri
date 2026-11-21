@@ -101,6 +101,7 @@ struct SpeechBubble: View {
 struct ChatView: View {
     @ObservedObject var state: PetState
     @State private var draft = ""
+    @ObservedObject private var voice = VoiceInput.shared
     @FocusState private var focused: Bool
 
     private let examples = ["Explain this project to me", "Find bugs in my code", "What's on my screen?", "Remind me to stretch in 1 hour"]
@@ -142,6 +143,7 @@ struct ChatView: View {
                 .help(state.projectURL?.path ?? "Pick the project Kiri works in")
                 Button { state.chatOpen = false } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)   // Esc closes the chat
                     .help("Close chat")
             }
             HStack(spacing: 10) {
@@ -193,7 +195,7 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Ask me anything about your code.")
                 .font(.callout.weight(.semibold))
-            Text("Tip: press ⌥Space in any app, then talk with Wispr Flow 🎙️")
+            Text("Tip: press ⌥Space in any app and just talk. I'll send when you stop 🎙️")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(examples, id: \.self) { ex in
                 Button(ex) { state.send(ex) }
@@ -206,11 +208,21 @@ struct ChatView: View {
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask Kiri… or speak with Wispr Flow", text: $draft, axis: .vertical)
+            Button { state.listen() } label: {
+                Image(systemName: voice.listening ? "waveform.circle.fill" : "mic.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(voice.listening ? Color.red : Color.accentColor)
+                    .symbolEffect(.pulse, isActive: voice.listening)
+            }
+            .buttonStyle(.borderless)
+            .help(voice.listening ? "Listening… click to send now" : "Talk to Kiri (or press ⌥Space)")
+            TextField(voice.listening ? "Listening… just talk" : "Ask Kiri… or press 🎙", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .focused($focused)
                 .onSubmit(send)
+                .onChange(of: voice.transcript) { _, words in if voice.listening { draft = words } }
+                .onChange(of: voice.listening) { _, on in if !on { draft = "" } }
                 // Enter sends (also after Wispr Flow dictation); Shift+Enter adds a new line.
                 .onKeyPress(.return, phases: .down) { press in
                     if press.modifiers.contains(.shift) { return .ignored }

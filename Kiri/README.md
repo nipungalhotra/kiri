@@ -14,7 +14,8 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Lives on your Mac:** Hoot the owl floats on your desktop or, on MacBooks with a notch, **lives in the notch** and expands when something happens.
 - **Real coding help:** chat about your project, find bugs, and let it **fix failing tests**. Powered by [Claude Code](https://claude.com/claude-code).
 - **Feelings:** idle → thinking → working (headphones) → **sad** when tests fail → **celebrating** when they pass → sleepy late at night. It blinks with real furry eyelids.
-- **Voice:** press **⌥Space in any app**, talk (works great with Wispr Flow), and Kiri **reads the answer out loud**.
+- **“Hey Hoot”:** say *“Hey Hoot, open Safari”* hands-free (always-on, on-device; pauses while Hoot talks; turn off in 🦉 → Voice).
+- **Voice commands:** press **⌥Space in any app** and just talk. Hoot listens (on your Mac, Indian or US English), shows your words live, and **sends when you stop talking**. Replies are **read out loud in a female voice** (pick one in 🦉 → Voice).
 - **Sees your screen:** press 📸 or ask *“what's on my screen?”* and Hoot explains what you're looking at.
 - **Mac tasks:** *“Open Safari”*, *“Remind me to stretch at 5pm”*, *“Organize my Downloads”*, *“Turn on focus”*.
 - **Watches in the background:** 👀 re-runs tests whenever you save, and an optional terminal hook lets Hoot notice failed commands and offer help.
@@ -30,7 +31,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="docs/kiri-notch.png" width="420"> | <img src="docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.1.3.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.2.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -42,7 +43,8 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 Requires **macOS 14+**, Apple Silicon or Intel.
 
 ## Use it
-- **Press ⌥Space in any app** → chat opens with the text box focused. Talk with **Wispr Flow** or type, then press **Enter** to send (Shift+Enter = new line). ⌥Space again closes it.
+- **Press ⌥Space in any app** → Hoot puts on headphones and listens. Just talk; it sends when you stop (press ⌥Space again to send right away). Prefer typing or Wispr Flow? Turn off 🦉 → Voice → *Listen when I press ⌥Space*.
+- **🦉 → Voice** picks Hoot's voice (female voices; *Get nicer voices…* downloads Premium ones like Ava, Zoe or Isha).
 - **🔊 button** in the chat: Kiri reads replies and test results out loud (click to mute).
 - **Click the owl** to chat, **drag** it anywhere, **right-click** for more.
 - **📸** = ask about your screen (needs Screen Recording permission once). **👀** = re-run tests on every save.
@@ -65,7 +67,7 @@ See **[DEMO.md](DEMO.md)** for a shot-by-shot 30-second demo video script.
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.1.3.dmg installer
+./make-dmg.sh          # dist/Kiri-1.2.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 

@@ -39,9 +39,9 @@ final class Voice: NSObject {
         guard !spoken.isEmpty else { return }
         stop()
         let u = AVSpeechUtterance(string: spoken)
-        u.voice = Self.bestVoice
+        u.voice = Self.chosenVoice
         u.rate = 0.5
-        u.pitchMultiplier = 1.08
+        u.pitchMultiplier = 1.12
         synth.speak(u)
         Log.write("speaking \(spoken.count) chars")
     }
@@ -50,13 +50,37 @@ final class Voice: NSObject {
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
     }
 
-    /// Prefer an enhanced/premium English voice if the user has one installed.
-    private static let bestVoice: AVSpeechSynthesisVoice? = {
-        let english = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en") }
-        return english.first { $0.quality == .premium }
-            ?? english.first { $0.quality == .enhanced }
+    /// Names of female macOS voices (many report no gender, so we also go by name).
+    static let femaleNames: Set<String> = ["Samantha", "Ava", "Zoe", "Allison", "Susan", "Victoria", "Karen", "Moira", "Tessa",
+                                           "Fiona", "Kate", "Serena", "Isha", "Veena", "Lekha", "Nicky", "Joelle", "Catherine",
+                                           "Flo", "Sandy", "Shelley", "Kathy", "Siri Female"]
+
+    static func isFemale(_ v: AVSpeechSynthesisVoice) -> Bool {
+        v.gender == .female || femaleNames.contains(v.name) || femaleNames.contains { v.name.hasPrefix($0 + " ") }
+    }
+
+    /// Installed female English voices, best quality first (for the 🦉 menu).
+    static var femaleVoices: [AVSpeechSynthesisVoice] {
+        var seen = Set<String>()
+        return AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("en") && isFemale($0) }
+            .sorted { ($0.quality.rawValue, $0.language == "en-IN" ? 1 : 0) > ($1.quality.rawValue, $1.language == "en-IN" ? 1 : 0) }
+            .filter { seen.insert($0.name + $0.language).inserted }
+    }
+
+    /// The voice the user picked in the menu, else the best female voice (Samantha if nothing better).
+    static var chosenVoice: AVSpeechSynthesisVoice? {
+        if let id = UserDefaults.standard.string(forKey: "voiceID"), let v = AVSpeechSynthesisVoice(identifier: id) { return v }
+        return femaleVoices.first { $0.quality != .default }
+            ?? femaleVoices.first { $0.name == "Samantha" }
+            ?? femaleVoices.first
             ?? AVSpeechSynthesisVoice(language: "en-US")
-    }()
+    }
+
+    static func choose(_ v: AVSpeechSynthesisVoice) {
+        UserDefaults.standard.set(v.identifier, forKey: "voiceID")
+        shared.speak("Hi! I'm Hoot. This is how I sound now.")
+    }
 
     /// Turn a markdown reply into something pleasant to hear: no code blocks, symbols or file noise.
     static func speakable(_ text: String) -> String {
