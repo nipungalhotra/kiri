@@ -27,6 +27,18 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Expressive:** live eyes follow your mouse and react to moods, a quick “oh!” when surprised, and a beak that talks while Kiri speaks.
 - **Light on your Mac:** 8–24 fps, GPU-drawn, and it pauses when hidden.
 
+### New in 1.4 (beta)
+- **Keep / Undo:** after Hoot changes code you get **Keep**, **Undo** (puts every file back, new files go to the Trash) and **Compare** (opens FileMerge).
+- **Background jobs:** start a message with *“in the background, …”* or press ⏳. Up to two run while you keep chatting.
+- **Automations:** *“every day at 9am brief me”*, *“every weekday at 6pm run tests”*, *“every hour check my PRs”*, *“list automations”*.
+- **Open a PR:** *“open a PR”* pushes your branch and opens a pull request after you check the title and description (never pushes to main).
+- **Mail in the daily brief:** unread count and latest senders from the Mail app (when Mail is open).
+- **Livelier Hoot while working:** headphones, eyes reading the code, floating code, head bobbing, and a badge showing what it's doing and for how long.
+- **Test “Hey Hoot”:** 🦉 → Voice shows what the mic hears, and wake detection is more forgiving.
+- **Talk without repeating “Hey Hoot”:** after Hoot answers out loud it keeps listening for a follow-up. Stay quiet for a few seconds or say *“thanks”* to finish.
+- **Faster, steadier wake word:** no more deaf moments every minute, and Hoot keeps listening for your command right after its name.
+- **New chat window:** purple to match Hoot, in light and dark mode.
+
 ### New in 1.3
 - **PR buddy:** watches your open GitHub pull requests (via `gh`). CI fails → Hoot gets sad and offers **Fix it**; a new review → **Explain**.
 - **Commit helper:** say or type *“commit this”*. Claude writes the message from your diff, you edit/approve it, Kiri commits (never pushes).
@@ -46,7 +58,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="Kiri/docs/kiri-notch.png" width="420"> | <img src="Kiri/docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.3.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.4.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -83,7 +95,7 @@ cd Kiri
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.3.dmg installer
+./make-dmg.sh          # dist/Kiri-1.4.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 

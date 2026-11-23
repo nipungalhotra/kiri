@@ -295,6 +295,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let hey = menu.addItem(withTitle: "Listen for “Hey Hoot”", action: #selector(toggleHeyHoot), keyEquivalent: "")
         hey.target = self
         hey.state = state.heyHoot ? .on : .off
+        let test = menu.addItem(withTitle: "Test “Hey Hoot”…", action: #selector(testWake), keyEquivalent: "")
+        test.target = self
         menu.addItem(.separator())
         let header = menu.addItem(withTitle: "Hoot's voice", action: nil, keyEquivalent: "")
         header.isEnabled = false
@@ -313,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleListen() { state.listenOnHotkey.toggle() }
     @objc private func toggleHeyHoot() { state.heyHoot.toggle() }
+    @objc private func testWake() { showPet(); state.testWakeWord() }
     @objc private func pickVoice(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String, let v = AVSpeechSynthesisVoice(identifier: id) else { return }
         Voice.choose(v)
@@ -427,15 +430,43 @@ enum KiriApp {
         if let i = args.firstIndex(of: "--owl-shot"), i + 1 < args.count {
             // Hoot with every accessory (+ focus badge) for checking the art: Kiri --owl-shot out.png --accessories
             PetSignals.shared.quiet = args.contains("--quiet")
+            PetSignals.shared.busySince = Date().addingTimeInterval(-42)
+            PetSignals.shared.activity = "Editing calculator.py"
             let view = HStack(spacing: 0) {
                 OwlFrame(mood: .idle, t: 1.0, followMouse: false, lookOverride: .zero)
-                OwlFrame(mood: .happy, t: 1.3, followMouse: false, lookOverride: CGPoint(x: 0.5, y: 0))
+                OwlFrame(mood: .working, t: 3.3, followMouse: false)
+                OwlFrame(mood: .working, t: 13.4, followMouse: false)
+                OwlFrame(mood: .thinking, t: 2.1, followMouse: false)
             }.padding(10).background(Color(white: 0.92))
             let r = ImageRenderer(content: view)
             r.scale = 2
             if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: URL(fileURLWithPath: args[i + 1])) }
             return
+        }
+        if let i = args.firstIndex(of: "--chat-shot"), i + 1 < args.count {
+            // Renders the chat window with sample messages: Kiri --chat-shot out.png [--dark]
+            let state = PetState()
+            state.messages = [
+                ChatMessage(role: .user, text: "Can you change my wallpaper?"),
+                ChatMessage(role: .kiri, text: "Sure! Pick one:\n- **One of your own photos:** tell me the file path, like `~/Pictures/beach.jpg`.\n- **A built-in macOS wallpaper:** I can list them so you can pick."),
+                ChatMessage(role: .user, text: "Cute, can you minimise the Claude window?"),
+                ChatMessage(role: .kiri, text: "Done! I minimised it 🦉"),
+                ChatMessage(role: .note, text: "🦉 Minimised Claude"),
+            ]
+            let host = NSHostingView(rootView: ChatView(state: state).frame(width: 400, height: 600))
+            host.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
+            let win = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            win.appearance = NSAppearance(named: args.contains("--dark") ? .darkAqua : .aqua)
+            win.backgroundColor = args.contains("--dark") ? .black : .white
+            win.contentView = host
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 1]))
+            }
+            exit(0)
         }
         Log.prepare()
         if let i = args.firstIndex(of: "--wake-probe"), i + 1 < args.count {

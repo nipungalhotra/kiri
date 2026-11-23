@@ -23,8 +23,10 @@ final class PetState: ObservableObject {
         }
     }
     @Published var messages: [ChatMessage] = []
-    @Published var activity: String?
-    @Published var busy = false
+    @Published var activity: String? { didSet { PetSignals.shared.activity = activity } }
+    @Published var busy = false {
+        didSet { if busy != oldValue { PetSignals.shared.busySince = busy ? Date() : nil } }
+    }
     @Published var testing = false
     @Published var streak = 0
     @Published var projectURL: URL? {
@@ -73,10 +75,17 @@ final class PetState: ObservableObject {
     /// Text on the bubble's main button ("Fix it", "Explain").
     @Published var fixLabel = "Fix it"
     /// Quiet mode (Focus): no chatty bubbles or speech unless you ask or something breaks.
+    /// A spoken conversation is going on: after each reply Hoot listens for a follow-up.
+    var inConversation = false
     @Published var quiet: Bool {
         didSet { UserDefaults.standard.set(quiet, forKey: "quiet"); PetSignals.shared.quiet = quiet }
     }
     var onBuddyEvent: ((BuddyEvent) -> Void)?
+    /// Changes waiting for Keep / Undo, and Claude jobs running in the background.
+    @Published var reviews: [ChangeReview] = []
+    @Published var backgroundTasks: [BackgroundTask] = []
+    var currentSnapshot: UndoSnapshot?
+    func checkPRsNow() { prWatcher?.poll() }
     private var prWatcher: PRWatcher?
     private var clipboardWatcher: ClipboardWatcher?
     private var xcodeWatcher: XcodeWatcher?
@@ -183,16 +192,17 @@ final class PetState: ObservableObject {
     private func setUpWakeWord() {
         let wake = WakeWord.shared
         wake.isBusy = { [weak self] in self?.busy ?? false }
-        wake.onHeardName = {
+        wake.onHeardName = { [weak self] in
             PetSignals.shared.surprise(for: 0.6)
             NSSound(named: "Tink")?.play()
+            if Date() < wake.testUntil { self?.say("✅ That woke me!", mood: .happy, for: 3) }
         }
         wake.onWake = { [weak self] rest in
             guard let self else { return }
             if self.busy { self.say("One sec, I'm still working 🦉", for: 3); return }
             self.chatOpen = true
-            if rest.split(separator: " ").count >= 2 {
-                self.send(rest)
+            if rest.split(separator: " ").count >= 2 || (!rest.isEmpty && WakeWord.startsWithCommand(rest)) {
+                self.sendSpoken(rest)
             } else {
                 self.listen()
             }
@@ -283,6 +293,7 @@ final class PetState: ObservableObject {
             if speakReplies { Voice.shared.speak("You've been coding for ninety minutes. Time for a short stretch break?") }
         }
         if !busy, !testing, !offerFix, !quiet, bubble == nil, let morning = morningGreeting() { say(morning, for: 10) }
+        runDueAutomations()
         guard !busy, !testing, !offerFix, mood == .idle || mood == .sleepy || (mood == .sad && PetSignals.shared.batteryLow) else { return }
         settle()
         if isLate && !saidGoodnight {
@@ -482,27 +493,37 @@ final class PetState: ObservableObject {
     // MARK: Voice commands
 
     /// Start listening; when you stop talking, the words are sent to Claude automatically.
-    func listen() {
+    func listen(followUp: Bool = false) {
         let mic = VoiceInput.shared
         if mic.listening { mic.finish(send: true); return }   // second press: send now
         guard !busy else { say("One sec, I'm still working 🦉", for: 3); return }
-        chatOpen = true
+        if !followUp { chatOpen = true }
         mic.onFinished = { [weak self] words in
             guard let self else { return }
             self.activity = nil
             if words.isEmpty {
                 self.settle()
-                self.say("I didn't catch that 🙉 press ⌥Space and try again", for: 4)
+                if followUp {
+                    self.inConversation = false            // you went quiet: conversation over, mic off
+                    self.say("I'm here if you need me 🦉 (say “Hey Hoot”)", for: 3)
+                } else {
+                    self.say("I didn't catch that 🙉 press ⌥Space and try again", for: 4)
+                }
+            } else if followUp, Self.endsConversation(words) {
+                self.inConversation = false
+                self.settle()
+                self.say("Anytime! 🦉", mood: .happy, for: 3)
+                if self.speakReplies && !self.quiet { Voice.shared.speak("Anytime!") }
             } else {
-                self.send(words)
+                self.sendSpoken(words)
             }
         }
         Task { @MainActor in
             do {
                 try await mic.start()
                 self.mood = .working          // headphones on: listening
-                self.activity = "Listening… just talk, I'll send when you stop"
-                if !self.chatOpen { self.say("Listening… 🎧", for: nil) }
+                self.activity = followUp ? "Listening… anything else? (just stay quiet to finish)" : "Listening… just talk, I'll send when you stop"
+                if !self.chatOpen { self.say(followUp ? "Anything else? 🎧" : "Listening… 🎧", for: nil) }
             } catch {
                 self.activity = nil
                 let why: String
@@ -518,6 +539,39 @@ final class PetState: ObservableObject {
         }
     }
 
+    /// Something you said out loud: after Hoot answers, it keeps listening for a follow-up,
+    /// so you only say "Hey Hoot" once per conversation.
+    func sendSpoken(_ words: String) {
+        inConversation = true
+        send(words, spoken: true)
+    }
+
+    nonisolated static func endsConversation(_ words: String) -> Bool {
+        let t = words.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " .,!?").union(.whitespacesAndNewlines))
+        return ["thanks", "thank you", "thanks hoot", "thank you hoot", "that's all", "that is all", "that's it", "no", "nope",
+                "nothing", "no thanks", "no thank you", "stop", "bye", "goodbye", "bye hoot", "never mind", "nevermind", "i'm done",
+                "done", "ok thanks", "okay thanks", "cool thanks", "great thanks"].contains(t)
+    }
+
+    /// After a spoken reply: wait for Hoot to stop talking, then listen again for a few seconds.
+    func continueConversation() {
+        guard inConversation else { return }
+        let started = Date()
+        func check() {
+            guard self.inConversation, !self.busy else { return }
+            if Voice.shared.isSpeaking {
+                if Date().timeIntervalSince(started) < 90 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { check() } }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                guard self.inConversation, !self.busy, !Voice.shared.isSpeaking, !VoiceInput.shared.listening else { return }
+                NSSound(named: "Pop")?.play()
+                self.listen(followUp: true)
+            }
+        }
+        check()
+    }
+
     // MARK: Chat with Claude
 
     /// A folder for chats when no project is chosen (Mac tasks, screen questions...).
@@ -528,11 +582,20 @@ final class PetState: ObservableObject {
     }()
 
     func send(_ prompt: String, shownAs display: String? = nil, cwd: URL? = nil,
-              extraAllowedTools: [String] = [], forceEdits: Bool = false, includeScreen: Bool? = nil) {
+              extraAllowedTools: [String] = [], forceEdits: Bool = false, includeScreen: Bool? = nil, spoken: Bool = false) {
         Voice.shared.stop()
+        if !spoken { inConversation = false }          // typing ends a voice conversation
         Log.write("send pressed busy=\(busy) project=\(projectURL?.path ?? "nil")")
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !busy else { return }
+        guard !text.isEmpty else { return }
+        // background jobs and automations can be set up even while Kiri is busy
+        if display == nil, let job = Self.backgroundTask(in: text) {
+            messages.append(ChatMessage(role: .user, text: text))
+            startBackground(job)
+            return
+        }
+        if display == nil, handleAutomationRequest(text) { return }
+        guard !busy else { return }
         if display == nil, handleBuiltIn(text) { return }
         currentAsk = display ?? text
         currentIsFix = false
@@ -584,11 +647,27 @@ final class PetState: ObservableObject {
              shownAs: "What's on my screen?", includeScreen: true)
     }
 
+    static var workspaceDir: URL { workspace }
+
     private func startClaude(_ text: String, dir: URL, extraAllowedTools: [String], forceEdits: Bool, addDirs: [URL]) {
-        claude.send(prompt: text, cwd: dir, sessionID: sessionID, allowEdits: allowEdits,
-                    extraAllowedTools: extraAllowedTools, forceEdits: forceEdits, addDirs: addDirs) { [weak self] event in
-            self?.handle(event)
+        // copy the project first, so any edits can be undone with one click
+        withUndoSnapshot(for: dir, edits: allowEdits || forceEdits) { [weak self] snap in
+            guard let self, self.busy else { snap?.discard(); return }
+            self.currentSnapshot = snap
+            self.activity = "Thinking…"
+            self.claude.send(prompt: text, cwd: dir, sessionID: self.sessionID, allowEdits: self.allowEdits,
+                             extraAllowedTools: extraAllowedTools, forceEdits: forceEdits, addDirs: addDirs) { [weak self] event in
+                self?.handle(event)
+            }
         }
+    }
+
+    /// After a run: offer Keep / Undo for whatever Claude changed.
+    private func reviewRun(denied: [(name: String, detail: String)]) {
+        guard let snap = currentSnapshot else { return }
+        currentSnapshot = nil
+        let files = EditTracker.changedFiles(calls: toolCalls, denied: denied, root: snap.root)
+        offerReview(title: currentAsk, files: files, snapshot: snap)
     }
 
     func stop() { claude.stop(); Voice.shared.stop() }
@@ -622,6 +701,7 @@ final class PetState: ObservableObject {
                 note("Something went wrong: \(result ?? "unknown error")")
                 say("Oops, that didn't work 😣", mood: .sad, for: 5)
                 feel(.sad, for: 4)
+                inConversation = false
                 return
             }
             let spoken = result.map { MacAction.extract(from: $0).cleaned }
@@ -641,13 +721,17 @@ final class PetState: ObservableObject {
             let denied = deniedCalls
             pendingActions = []
             deniedCalls = []
+            reviewRun(denied: denied)
             Task { @MainActor in
                 await self.runActions(actions)
                 self.askToContinue(after: denied)
+                if denied.isEmpty { self.continueConversation() } else { self.inConversation = false }
             }
         case .failed(let why):
             busy = false
+            inConversation = false
             activity = nil
+            reviewRun(denied: deniedCalls)
             note(why)
             if !chatOpen { say(why, for: 6) }
             feel(.sad, for: 3)

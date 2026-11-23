@@ -96,10 +96,15 @@ struct OwlFrame: View {
 
     @ViewBuilder private var fullBody: some View {
         let accent = OwlArt.accent
-        let pose = OwlArt.pose(for: mood)
-        let jump = mood == .happy ? -abs(sin(t * 4.2)) * 16 : 0
+        // On long jobs, switch between the headphones pose and reading the code (live eyes scanning).
+        // working uses the full body (live eyes reading the code) with drawn headphones
+        let pose = mood == .working ? "body" : OwlArt.pose(for: mood)
+        let jump = mood == .happy ? -abs(sin(t * 4.2)) * 16 : (mood == .working ? -abs(sin(t * 4.4)) * 4 : 0)   // bopping to the music
         let breathe = 1 + sin(t * (mood == .sleepy ? 1.0 : 2.0)) * 0.012
-        let tilt: Double = mood == .thinking ? 6 + sin(t * 1.4) * 2 : (mood == .sad ? -4 : sin(t * 0.8) * 2.5)
+        // thinking: tilt the head one way, then the other, every few seconds
+        let thinkSide: Double = sin(t * 0.55) > 0 ? 1 : -1
+        let tilt: Double = mood == .thinking ? thinkSide * (6 + sin(t * 1.4) * 2)
+            : (mood == .sad ? -4 : (mood == .working ? sin(t * 2.2) * 4 : sin(t * 0.8) * 2.5))
 
         ZStack(alignment: .bottom) {
             // soft floor glow
@@ -128,6 +133,7 @@ struct OwlFrame: View {
                         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.75),
                                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
                         .scaleEffect(breathe, anchor: .bottom)
+                        .rotationEffect(.degrees(tilt), anchor: .bottom)
                         .offset(y: -40)
                         .transition(.opacity)
                 }
@@ -160,6 +166,7 @@ struct OwlFrame: View {
         furLid(img, OwlArt.rightEye, in: size, tilt: mood == .sad ? 14 : 0)
         if Voice.shared.isSpeaking || previewTalking { talkingBeak(in: size) }
         OwlAccessories(worn: Evolution.shared.worn, size: size)
+        if mood == .working { Headphones(t: t, size: size) }
     }
 
     /// Where the eyes point, -1...1 on each axis (y down).
@@ -328,6 +335,8 @@ struct OwlFrame: View {
     @ViewBuilder private func props(_ accent: Color) -> some View {
         switch mood {
         case .thinking:
+            ThinkSparks(t: t, color: accent)
+            WorkBadge(t: t)
             HStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { i in
                     Circle().fill(accent).frame(width: 7, height: 7).offset(y: sin(t * 6 - Double(i)) * 3)
@@ -338,7 +347,10 @@ struct OwlFrame: View {
             .shadow(color: .black.opacity(0.2), radius: 4)
             .offset(x: 70, y: -218)
         case .working:
-            SoundWaves(t: t, color: Color(red: 0.4, green: 0.8, blue: 1)).offset(y: -140)
+            ZStack {
+                CodeGlyphs(t: t, color: accent)
+                WorkBadge(t: t)
+            }
         case .happy:
             Confetti(t: t).offset(y: -150)
         case .sad where PetSignals.shared.batteryLow:
@@ -428,5 +440,104 @@ struct BeakTip: Shape {
         p.addQuadCurve(to: CGPoint(x: r.minX, y: r.minY), control: CGPoint(x: r.midX, y: r.maxY * 2 - r.minY))
         p.closeSubpath()
         return p
+    }
+}
+
+// MARK: Busy animations (so Hoot never just stands still while Claude works)
+
+/// Little bits of code floating up from the owl while it works.
+struct CodeGlyphs: View {
+    let t: Double
+    let color: Color
+    private static let glyphs = ["</>", "{ }", ";", "#", "()", "=>", "[ ]", "fn"]
+    var body: some View {
+        ZStack {
+            ForEach(0..<6, id: \.self) { i in
+                let ph = (t * 0.35 + Double(i) / 6).truncatingRemainder(dividingBy: 1)
+                let side: CGFloat = i % 2 == 0 ? -1 : 1
+                Text(Self.glyphs[(i + Int(t * 0.35)) % Self.glyphs.count])
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(i % 3 == 0 ? Color.white : color)
+                    .shadow(color: color, radius: 4)
+                    .offset(x: side * (95 + CGFloat(sin(t * 1.3 + Double(i))) * 8), y: -50 - CGFloat(ph) * 190)
+                    .opacity(sin(ph * .pi))
+            }
+        }
+    }
+}
+
+/// Sparks circling the head while thinking.
+struct ThinkSparks: View {
+    let t: Double
+    let color: Color
+    var body: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                let a = t * 1.6 + Double(i) * 2.094
+                Image(systemName: "sparkle").font(.system(size: 11 + CGFloat(i) * 2, weight: .bold))
+                    .foregroundStyle(i == 1 ? Color.yellow : color)
+                    .offset(x: cos(a) * 88, y: -222 + sin(a) * 14)
+                    .opacity(0.55 + 0.45 * sin(a * 2))
+            }
+        }
+    }
+}
+
+/// What Hoot is doing and for how long: "✏️ 0:42".
+struct WorkBadge: View {
+    let t: Double
+    var body: some View {
+        let s = PetSignals.shared
+        if let since = s.busySince {
+            let secs = max(0, Int(Date().timeIntervalSince(since)))
+            HStack(spacing: 4) {
+                Text(PetSignals.icon(for: s.activity) ?? "💭").font(.system(size: 13))
+                    .scaleEffect(1 + 0.12 * sin(t * 6))
+                Text(String(format: "%d:%02d", secs / 60, secs % 60))
+                    .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Capsule().fill(Color.black.opacity(0.6)))
+            .offset(x: -70, y: -12)
+        }
+    }
+}
+
+/// Glowing headphones drawn on the full-body owl while it works (positions are fractions of body.png).
+struct Headphones: View {
+    let t: Double
+    let size: CGSize
+    var body: some View {
+        let w = size.width, h = size.height
+        let glow = Color(red: 0.35, green: 0.8, blue: 1)
+        let pulse = 0.65 + 0.35 * sin(t * 5)
+        let l = CGPoint(x: 0.1 * w, y: 0.38 * h), r = CGPoint(x: 0.99 * w, y: 0.38 * h)
+        ZStack {
+            Path { p in
+                p.move(to: CGPoint(x: l.x + 0.01 * w, y: l.y - 0.06 * h))
+                p.addQuadCurve(to: CGPoint(x: r.x - 0.01 * w, y: r.y - 0.06 * h), control: CGPoint(x: 0.55 * w, y: -0.2 * h))
+            }
+            .stroke(LinearGradient(colors: [Color(white: 0.22), Color(white: 0.42)], startPoint: .top, endPoint: .bottom),
+                    style: StrokeStyle(lineWidth: 0.035 * w, lineCap: .round))
+            ForEach([l, r], id: \.x) { c in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 0.05 * w).fill(LinearGradient(colors: [Color(white: 0.3), Color(white: 0.12)], startPoint: .top, endPoint: .bottom))
+                    RoundedRectangle(cornerRadius: 0.05 * w).stroke(glow.opacity(pulse), lineWidth: 0.012 * w)
+                }
+                .frame(width: 0.1 * w, height: 0.19 * h)
+                .shadow(color: glow.opacity(0.7 * pulse), radius: 6)
+                .position(c)
+            }
+            // little music notes popping out
+            ForEach(0..<2, id: \.self) { i in
+                let ph = (t * 0.7 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                Image(systemName: i == 0 ? "music.note" : "music.quarternote.3")
+                    .font(.system(size: 0.07 * w, weight: .bold)).foregroundStyle(glow)
+                    .position(x: (i == 0 ? r.x + 0.06 * w : l.x - 0.06 * w), y: r.y - 0.1 * h - ph * 0.2 * h)
+                    .opacity(sin(ph * .pi))
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

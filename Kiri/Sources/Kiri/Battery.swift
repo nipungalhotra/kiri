@@ -41,6 +41,25 @@ final class PetSignals: ObservableObject {
     @Published var chatOpen = false
     /// Quiet mode / Focus is on (the owl wears a little "shh" badge).
     @Published var quiet = false
+    /// What Claude is doing right now ("Reading app.py"), and since when Kiri has been busy.
+    var activity: String?
+    var busySince: Date?
+    /// Claude jobs running in the background.
+    @Published var backgroundCount = 0
+
+    /// A little picture for the current activity.
+    static func icon(for activity: String?) -> String? {
+        guard let a = activity?.lowercased() else { return nil }
+        if a.hasPrefix("reading") { return "📖" }
+        if a.hasPrefix("editing") || a.hasPrefix("writing") { return "✏️" }
+        if a.hasPrefix("running") { return a.contains("test") ? "🧪" : "💻" }
+        if a.hasPrefix("searching") { return "🔍" }
+        if a.hasPrefix("looking it up") { return "🌐" }
+        if a.hasPrefix("making a plan") { return "📝" }
+        if a.hasPrefix("listening") { return "🎧" }
+        if a.hasPrefix("looking at your screen") { return "👀" }
+        return nil
+    }
 
     func surprise(for seconds: Double = 0.7) { surprisedUntil = Date().addingTimeInterval(seconds) }
 }

@@ -135,8 +135,55 @@ enum DailyBrief {
                 lines.append("🦉 " + m)
             }
         }
+        if let mail = await Task.detached(operation: { mailSummary() }).value { lines.append(mail) }
         if let b = Battery.read(), b.onBattery { lines.append("🔋 Battery \(b.percent)%.") }
         return lines.joined(separator: "\n")
+    }
+}
+
+extension DailyBrief {
+    /// Unread mail from the Mail app (works with Gmail or any account added to Mail). Only when Mail is
+    /// already open, so Kiri never launches it; macOS asks once whether Kiri may read Mail.
+    nonisolated static func mailSummary() -> String? {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.mail").isEmpty else { return nil }
+        let script = """
+        tell application "Mail"
+            set n to unread count of inbox
+            set out to (n as string)
+            if n > 0 then
+                set total to count of messages of inbox
+                if total > 40 then set total to 40
+                set msgs to (messages 1 thru total of inbox)
+                set k to 0
+                repeat with m in msgs
+                    if read status of m is false then
+                        set k to k + 1
+                        set out to out & linefeed & (extract name from sender of m) & " — " & subject of m
+                        if k ≥ 3 then exit repeat
+                    end if
+                end repeat
+            end if
+            return out
+        end tell
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", script]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: killer)
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        killer.cancel()
+        guard p.terminationStatus == 0 else { return nil }
+        let lines = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+        guard let n = Int(lines.first ?? "") else { return nil }
+        if n == 0 { return "📧 Inbox zero! No unread mail." }
+        let top = lines.dropFirst().map { "   • " + $0.prefix(70) }.joined(separator: "\n")
+        return "📧 \(n) unread email\(n == 1 ? "" : "s")" + (top.isEmpty ? "." : ", latest:\n" + top)
     }
 }
 

@@ -97,8 +97,15 @@ enum SelfTest {
         check("custom command needs the whole name", CustomCommands.match("say hello to mom and tell her", in: [hello]) == nil)
         check("script file becomes a spoken name", CustomCommands.displayName(forFile: URL(fileURLWithPath: "/x/Start-Standup.sh")) == "start standup")
 
+        check("“thanks” ends a voice conversation", PetState.endsConversation("Thanks!") && PetState.endsConversation("that's all") && !PetState.endsConversation("open Safari"))
+        check("wake keeps listening for the command", WakeWord.command(in: "Hey Hoot") == "" && WakeWord.command(in: "Hey Hoot, open Safari") == "open Safari" && WakeWord.command(in: "open Safari") == "open Safari")
         check("“Hey, brief me” wakes for the brief", WakeWord.commandOffset(in: "Hey brief me") != nil)
         check("“Hey commit this” wakes for the commit helper", WakeWord.commandOffset(in: "Hey, commit this") != nil)
+
+        check("misheard “Hey food, open Safari” still wakes", WakeWord.commandOffset(in: "Hey food, open Safari").map { String("Hey food, open Safari".dropFirst($0)).trimmingCharacters(in: CharacterSet(charactersIn: " ,")) } == "open Safari")
+        check("“Hey hot” then a pause wakes", WakeWord.commandOffset(in: "Hey hot") != nil)
+        check("“Hey Google” never wakes Kiri", WakeWord.commandOffset(in: "Hey Google") == nil && WakeWord.commandOffset(in: "Hey Siri open Safari") == nil)
+        check("“hey how are you” doesn't wake", WakeWord.commandOffset(in: "hey how are you") == nil)
 
         // 12. copied errors
         check("Python traceback looks like an error", ClipboardWatcher.looksLikeError("Traceback (most recent call last):\n  File \"a.py\", line 3\nZeroDivisionError: division by zero"))
@@ -131,6 +138,46 @@ enum SelfTest {
         check("memory remembers earlier work", !ProjectMemory.enabled || ctx.contains("fix the login bug"))
         ProjectMemory.forget(fake)
         check("memory can be forgotten", ProjectMemory.load(fake).entries.isEmpty)
+
+        // 17. background jobs, automations, PRs
+        check("“in the background, add docs” starts a background job", PetState.backgroundTask(in: "In the background, add docstrings to utils.py") == "add docstrings to utils.py")
+        check("normal text isn't a background job", PetState.backgroundTask(in: "what is the background color?") == nil)
+        check("“open a PR” is the PR helper", PetState.builtIn(for: "Open a PR") == .openPR)
+        if case .add(let a)? = Automations.parse("every day at 9am brief me"), case .daily(9, 0, false) = a.repeatRule {
+            check("automation: every day at 9am", a.command == "brief me")
+        } else { check("automation: every day at 9am", false) }
+        if case .add(let a)? = Automations.parse("Every weekday at 6:30 pm run tests"), case .daily(18, 30, true) = a.repeatRule {
+            check("automation: weekdays at 6:30pm", a.command == "run tests")
+        } else { check("automation: weekdays at 6:30pm", false) }
+        if case .add(let a)? = Automations.parse("every hour check my PRs"), case .every(60) = a.repeatRule {
+            check("automation: every hour", a.command == "check my prs")
+        } else { check("automation: every hour", false) }
+        check("automation: too often is refused", Automations.parse("every 1 minute run tests") == nil)
+        check("automation: list / stop", Automations.parse("list automations") == .list && Automations.parse("stop automation 2") == .remove(2))
+        let cal = Calendar.current
+        let nineOFive = cal.date(bySettingHour: 9, minute: 5, second: 0, of: Date())!
+        let daily = Automation(command: "brief me", repeatRule: .daily(hour: 9, minute: 0, weekdaysOnly: false))
+        var ran = daily; ran.lastRun = nineOFive
+        check("automation due once a day", daily.isDue(at: nineOFive) && !ran.isDue(at: nineOFive.addingTimeInterval(60)))
+
+        // 18. Keep / Undo really restores files
+        let proj = FileManager.default.temporaryDirectory.appendingPathComponent("kiri-undo-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+        let fileA = proj.appendingPathComponent("app.py"), fileNew = proj.appendingPathComponent("new.py")
+        try? "print('before')\n".write(to: fileA, atomically: true, encoding: .utf8)
+        if let snap = UndoSnapshot.take(proj) {
+            try? "print('after')\n".write(to: fileA, atomically: true, encoding: .utf8)
+            try? "x = 1\n".write(to: fileNew, atomically: true, encoding: .utf8)
+            let changed = EditTracker.changedFiles(calls: ["1": ("Edit", fileA.path), "2": ("Write", fileNew.path), "3": ("Read", "/etc/hosts")],
+                                                   denied: [], root: proj)
+            check("tracks edited files (got \(changed.count))", changed.count == 2)
+            changed.forEach { snap.restore($0) }
+            let back = (try? String(contentsOf: fileA, encoding: .utf8)) ?? ""
+            check("undo restores the old file", back == "print('before')\n")
+            check("undo removes files Claude created", !FileManager.default.fileExists(atPath: fileNew.path))
+            snap.discard()
+        } else { check("undo snapshot", false) }
+        try? FileManager.default.removeItem(at: proj)
 
         // 8. battery read works (or no battery)
         let b = Battery.read()

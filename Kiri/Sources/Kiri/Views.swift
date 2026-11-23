@@ -26,7 +26,21 @@ struct PetArea: View {
     var body: some View {
         VStack(spacing: 2) {
             Spacer(minLength: 0)
-            if let text = state.bubble, !state.chatOpen || state.offerFix {
+            if !state.reviews.isEmpty && !state.chatOpen {
+                VStack(spacing: 6) {
+                    Text(state.bubble ?? "Keep these changes?").font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22)).multilineTextAlignment(.center).lineLimit(3)
+                    HStack(spacing: 6) {
+                        Button("Keep") { state.keepChanges() }.buttonStyle(.borderedProminent).tint(.green)
+                        Button { state.undoChanges() } label: { Text("Undo").foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22)) }.buttonStyle(.bordered)
+                        Button { state.compareChanges() } label: { Image(systemName: "rectangle.split.2x1").foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22)) }
+                            .buttonStyle(.bordered).help("Compare before and after")
+                    }.controlSize(.small)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: 200)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
+                .padding(.bottom, 4)
+            } else if let text = state.bubble, !state.chatOpen || state.offerFix {
                 SpeechBubble(text: text, showFix: state.offerFix, fixLabel: state.fixLabel,
                              onFix: { state.fixTests() }, onDismiss: { state.dismissFix() })
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
@@ -99,6 +113,60 @@ struct SpeechBubble: View {
 
 // MARK: Chat
 
+/// Hoot's colours for the chat window (purple, like the owl), in light and dark mode.
+enum HootTheme {
+    static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
+    }
+    static func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
+    }
+    static let purple = Color(nsColor: rgb(0x8B5CF6))
+    static let deep = Color(nsColor: rgb(0x6D28D9))
+    static let top = dynamic(rgb(0xFBF9FF), rgb(0x241D36))
+    static let bottom = dynamic(rgb(0xF1EBFC), rgb(0x18131F))
+    static let card = dynamic(rgb(0xFFFFFF), rgb(0x2F2745))
+    static let chip = dynamic(rgb(0x8B5CF6, 0.10), rgb(0xFFFFFF, 0.08))
+    static let line = dynamic(rgb(0x6D28D9, 0.12), rgb(0xFFFFFF, 0.08))
+    static let field = dynamic(rgb(0xFFFFFF), rgb(0x0F0B16, 0.55))
+    static let userBubble = LinearGradient(colors: [Color(nsColor: rgb(0x9F7AEA)), Color(nsColor: rgb(0x7C3AED))], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+/// A small round owl face used as Hoot's avatar.
+struct HootAvatar: View {
+    var size: CGFloat = 26
+    var body: some View {
+        Text("🦉").font(.system(size: size * 0.6))
+            .frame(width: size, height: size)
+            .background(Circle().fill(HootTheme.userBubble))
+            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+    }
+}
+
+/// A round icon button / toggle in the chat toolbar.
+struct ChipButton: View {
+    let icon: String
+    var on = false
+    var label: String? = nil
+    let help: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                if let label { Text(label).font(.system(size: 11, weight: .medium)) }
+            }
+            .padding(.horizontal, label == nil ? 0 : 9)
+            .frame(minWidth: 26, minHeight: 26)
+            .foregroundStyle(on ? Color.white : HootTheme.purple)
+            .background(Capsule().fill(on ? AnyShapeStyle(HootTheme.userBubble) : AnyShapeStyle(HootTheme.chip)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
 struct ChatView: View {
     @ObservedObject var state: PetState
     @State private var draft = ""
@@ -107,85 +175,100 @@ struct ChatView: View {
 
     private let examples = ["Explain this project to me", "Find bugs in my code", "What's on my screen?", "Remind me to stretch in 1 hour"]
 
+    private var status: String {
+        if voice.listening { return "Listening…" }
+        if state.busy { return "Working…" }
+        if state.testing { return "Running tests…" }
+        return state.projectURL.map { "In \($0.lastPathComponent)" } ?? "Ready to help"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            HootTheme.line.frame(height: 1)
             messageList
             if let activity = state.activity {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).tint(HootTheme.purple)
                     Text(activity).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
+                .padding(.horizontal, 14).padding(.vertical, 6)
             }
-            Divider()
+            if !state.reviews.isEmpty {
+                ReviewBar(state: state).padding(.horizontal, 14).padding(.vertical, 6)
+            }
+            BackgroundList(state: state)
             inputRow
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.12)))
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .background(LinearGradient(colors: [HootTheme.top, HootTheme.bottom], startPoint: .top, endPoint: .bottom))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(HootTheme.line))
+        .shadow(color: HootTheme.deep.opacity(0.25), radius: 16, y: 6)
         .padding(.horizontal, 10).padding(.top, 10)
         .onAppear { DispatchQueue.main.async { focused = true } }
     }
 
     private var header: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Text("🌱 Kiri").font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HootAvatar(size: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Hoot").font(.system(size: 15, weight: .bold, design: .rounded))
+                    HStack(spacing: 4) {
+                        Circle().fill(voice.listening ? Color.red : (state.busy ? Color.orange : Color.green)).frame(width: 6, height: 6)
+                        Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
                 Spacer()
                 Button { state.chooseProject() } label: {
-                    Label(state.projectURL?.lastPathComponent ?? "Choose project", systemImage: "folder")
-                        .lineLimit(1)
+                    Label(state.projectURL?.lastPathComponent ?? "Choose project", systemImage: "folder.fill")
+                        .font(.system(size: 11, weight: .medium)).lineLimit(1)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .foregroundStyle(HootTheme.purple)
+                        .background(Capsule().fill(HootTheme.chip))
                 }
-                .buttonStyle(.bordered).controlSize(.small)
+                .buttonStyle(.plain)
                 .help(state.projectURL?.path ?? "Pick the project Kiri works in")
-                Button { state.chatOpen = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)   // Esc closes the chat
-                    .help("Close chat")
+                Button { state.chatOpen = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22).background(Circle().fill(HootTheme.chip))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)   // Esc closes the chat
+                .help("Close chat")
             }
-            HStack(spacing: 10) {
-                Button { state.runTests() } label: { Label("Run tests", systemImage: "play.fill") }
-                    .buttonStyle(.bordered).controlSize(.small)
+            HStack(spacing: 6) {
+                ChipButton(icon: "play.fill", label: "Tests", help: state.testPlan.map { "Runs: \($0.label)" } ?? "No tests found in this project") { state.runTests() }
                     .disabled(state.testing || state.projectURL == nil)
-                    .help(state.testPlan.map { "Runs: \($0.label)" } ?? "No tests found in this project")
-                Toggle("Can edit files", isOn: $state.allowEdits)
-                    .toggleStyle(.switch).controlSize(.mini)
-                    .help("Off: Kiri can only read and explain. On: Kiri can change files in this project.")
-                Toggle(isOn: $state.watchTests) { Image(systemName: state.watchTests ? "eye.fill" : "eye.slash") }
-                    .toggleStyle(.button).controlSize(.small)
+                ChipButton(icon: "pencil", on: state.allowEdits, label: state.allowEdits ? "Can edit" : "Read only",
+                           help: "Off: Kiri can only read and explain. On: Kiri can change files in this project.") { state.allowEdits.toggle() }
+                ChipButton(icon: state.watchTests ? "eye.fill" : "eye.slash", on: state.watchTests,
+                           help: state.watchTests ? "Watching: tests re-run when you save a file" : "Re-run tests automatically when you save") { state.watchTests.toggle() }
                     .disabled(state.projectURL == nil)
-                    .help(state.watchTests ? "Watching: tests re-run when you save a file" : "Re-run tests automatically when you save")
-                Button { state.askAboutScreen() } label: { Image(systemName: "camera.viewfinder") }
-                    .buttonStyle(.bordered).controlSize(.small)
+                ChipButton(icon: "camera.viewfinder", help: "What's on my screen?") { state.askAboutScreen() }
                     .disabled(state.busy)
-                    .help("What's on my screen?")
-                Toggle(isOn: $state.speakReplies) { Image(systemName: state.speakReplies ? "speaker.wave.2.fill" : "speaker.slash") }
-                    .toggleStyle(.button).controlSize(.small)
-                    .help(state.speakReplies ? "Kiri reads replies out loud (click to mute)" : "Muted (click to hear replies)")
+                ChipButton(icon: state.speakReplies ? "speaker.wave.2.fill" : "speaker.slash.fill", on: state.speakReplies,
+                           help: state.speakReplies ? "Kiri reads replies out loud (click to mute)" : "Muted (click to hear replies)") { state.speakReplies.toggle() }
                 Spacer()
-                Button("New chat") { state.newChat() }
-                    .buttonStyle(.borderless).controlSize(.small)
+                ChipButton(icon: "square.and.pencil", help: "New chat") { state.newChat() }
                     .disabled(state.messages.isEmpty)
             }
-            .font(.caption)
         }
-        .padding(12)
+        .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 12)
     }
 
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 10) {
                     if state.messages.isEmpty { emptyState }
                     ForEach(state.messages) { MessageRow(message: $0) }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(12)
+                .padding(14)
             }
+            .scrollIndicators(.never)
             .onChange(of: state.messages.count) {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -194,14 +277,18 @@ struct ChatView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Ask me anything about your code.")
-                .font(.callout.weight(.semibold))
-            Text("Tip: press ⌥Space in any app and just talk. I'll send when you stop 🎙️")
+            Text("Hi! What are we working on? 🦉")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+            Text("Say “Hey Hoot” or press ⌥Space and just talk. After I answer, I keep listening, so no need to say my name again.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(examples, id: \.self) { ex in
-                Button(ex) { state.send(ex) }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .disabled(state.busy)
+                Button { state.send(ex) } label: {
+                    Text(ex).font(.system(size: 12)).foregroundStyle(HootTheme.purple)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(HootTheme.chip))
+                }
+                .buttonStyle(.plain)
+                .disabled(state.busy)
             }
         }
         .padding(.vertical, 4)
@@ -210,17 +297,22 @@ struct ChatView: View {
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             Button { state.listen() } label: {
-                Image(systemName: voice.listening ? "waveform.circle.fill" : "mic.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(voice.listening ? Color.red : Color.accentColor)
+                Image(systemName: voice.listening ? "waveform" : "mic.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(voice.listening ? Color.white : HootTheme.purple)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(voice.listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(HootTheme.chip)))
                     .symbolEffect(.pulse, isActive: voice.listening)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help(voice.listening ? "Listening… click to send now" : "Talk to Kiri (or press ⌥Space)")
-            TextField(voice.listening ? "Listening… just talk" : "Ask Kiri… or press 🎙", text: $draft, axis: .vertical)
+            TextField(voice.listening ? "Listening… just talk" : "Message Hoot…", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(.system(size: 13))
                 .lineLimit(1...5)
                 .focused($focused)
+                .focusEffectDisabled()
+                .padding(.vertical, 6)
                 .onSubmit(send)
                 .onChange(of: voice.transcript) { _, words in if voice.listening { draft = words } }
                 .onChange(of: voice.listening) { _, on in if !on { draft = "" } }
@@ -230,22 +322,47 @@ struct ChatView: View {
                     send()
                     return .handled
                 }
+            let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            Button {
+                let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return }
+                draft = ""
+                state.send("in the background: " + text)
+            } label: {
+                Image(systemName: "hourglass").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(empty ? Color.secondary.opacity(0.5) : HootTheme.purple)
+                    .frame(width: 30, height: 30)
+            }
+                .buttonStyle(.plain)
+                .disabled(empty)
+                .help("Do this in the background while we keep chatting")
             if state.busy {
-                Button { state.stop() } label: { Image(systemName: "stop.circle.fill").font(.title2) }
-                    .buttonStyle(.borderless).help("Stop")
+                Button { state.stop() } label: {
+                    Image(systemName: "stop.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 30, height: 30).background(Circle().fill(Color.red.opacity(0.85)))
+                }
+                .buttonStyle(.plain).help("Stop")
             } else {
-                Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                    .buttonStyle(.borderless)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .keyboardShortcut(.return, modifiers: .command)
+                Button(action: send) {
+                    Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(empty ? AnyShapeStyle(Color.secondary.opacity(0.3)) : AnyShapeStyle(HootTheme.userBubble)))
+                }
+                .buttonStyle(.plain)
+                .disabled(empty)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
+        .padding(.leading, 6).padding(.trailing, 6).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(HootTheme.field))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(focused ? HootTheme.purple.opacity(0.5) : HootTheme.line))
         .padding(12)
     }
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !state.busy else { return }
+        guard !text.isEmpty else { return }
+        if state.busy && PetState.backgroundTask(in: text) == nil && Automations.parse(text) == nil { return }
         draft = ""
         state.send(text)
     }
@@ -282,7 +399,7 @@ struct MessageRow: View {
                         .font(.system(size: 11.5, design: .monospaced))
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.35)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
                 } else {
                     Text(prose(part.text))
                 }
@@ -297,17 +414,24 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(prose(message.text))
+                    .font(.system(size: 13))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.teal))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16, bottomTrailingRadius: 5, topTrailingRadius: 16, style: .continuous)
+                        .fill(HootTheme.userBubble))
+                    .shadow(color: HootTheme.deep.opacity(0.2), radius: 4, y: 2)
                     .textSelection(.enabled)
             }
         case .kiri:
             HStack(alignment: .top, spacing: 6) {
-                Text("🌱")
+                HootAvatar(size: 24)
                 bubbleContent
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.07)))
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous)
+                        .fill(HootTheme.card))
+                    .overlay(UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous)
+                        .stroke(HootTheme.line))
                 Spacer(minLength: 20)
             }
         case .note:

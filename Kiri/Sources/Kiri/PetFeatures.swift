@@ -1,12 +1,20 @@
+import AVFoundation
 import AppKit
 import Foundation
+import Speech
+
+enum SFSpeechRecognizerStatus {
+    static var allowed: Bool {
+        SFSpeechRecognizer.authorizationStatus() == .authorized && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+}
 
 /// The newer helpers: built-in voice/typed commands, PR buddy, clipboard and Xcode help,
 /// morning greeting, daily brief, achievements.
 extension PetState {
     // MARK: Built-in commands (handled on the Mac, no Claude needed)
 
-    enum BuiltIn: Equatable { case commit, brief, clipboard, achievements, custom(CustomCommands.Command) }
+    enum BuiltIn: Equatable { case commit, brief, clipboard, achievements, openPR, custom(CustomCommands.Command) }
 
     nonisolated static func builtIn(for text: String, commands: [CustomCommands.Command] = []) -> BuiltIn? {
         let t = text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " .!?,").union(.whitespacesAndNewlines))
@@ -15,6 +23,8 @@ extension PetState {
         if any(["commit", "commit this", "commit my changes", "commit my code", "commit the changes", "make a commit", "please commit"]) { return .commit }
         if any(["brief me", "daily brief", "my daily brief", "give me my daily brief", "good morning", "what's my day", "whats my day", "what's my day like", "plan my day"]) { return .brief }
         if any(["explain what i copied", "explain my clipboard", "what did i copy", "explain the clipboard", "explain this error i copied", "explain what i just copied"]) { return .clipboard }
+        if any(["open a pr", "open a pull request", "create a pr", "create a pull request", "make a pr", "raise a pr", "push this",
+                "push and open a pr", "push my branch", "open pr", "create pr"]) { return .openPR }
         if any(["achievements", "show achievements", "my achievements", "what have you earned", "show my progress"]) { return .achievements }
         return nil
     }
@@ -29,6 +39,7 @@ extension PetState {
         case .brief: dailyBrief()
         case .clipboard: explainClipboard()
         case .achievements: showAchievements()
+        case .openPR: chatOpen = true; openPullRequest()
         case .custom(let c): runCustom(c)
         }
         return true
@@ -46,6 +57,22 @@ extension PetState {
             say(out.count > 120 ? String(out.prefix(120)) + "…" : out, for: 6)
             if speakReplies { Voice.shared.speak(out) }
             feel(out.contains("failed") ? .sad : .happy, for: 2)
+        }
+    }
+
+    // MARK: Wake word test
+
+    /// For 20 s, show live what the mic hears (on screen only), so you can see how "Hey Hoot" comes out.
+    func testWakeWord() {
+        let wake = WakeWord.shared
+        guard heyHoot else { say("Turn on 🦉 → Voice → Listen for “Hey Hoot” first", for: 5); return }
+        guard SFSpeechRecognizerStatus.allowed else { say("I need Microphone and Speech Recognition: 🦉 → Setup Check…", mood: .sad, for: 6); return }
+        wake.testUntil = Date().addingTimeInterval(20)
+        wake.onTestHeard = { [weak self] text in self?.say("I hear: “\(text.suffix(60))”", for: 4) }
+        say("Testing for 20 seconds 🎤 Say “Hey Hoot, open Safari” and watch here.", mood: .happy, for: 5)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 21) { [weak self] in
+            wake.onTestHeard = nil
+            self?.say("Test done. If I never reacted, try saying it a bit slower, closer to the Mac 🦉", for: 6)
         }
     }
 

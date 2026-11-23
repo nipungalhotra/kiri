@@ -115,7 +115,7 @@ final class NotchController {
     }
 
     var expanded: Bool {
-        state.notchHover || state.chatOpen || state.busy || state.testing || state.offerFix
+        state.notchHover || state.chatOpen || state.busy || state.testing || state.offerFix || !state.reviews.isEmpty
             || state.bubble != nil || state.mood == .happy
     }
 
@@ -294,7 +294,9 @@ struct NotchIsland: View {
     }
 
     @ViewBuilder private var statusLine: some View {
-        if state.offerFix {
+        if !state.reviews.isEmpty {
+            ReviewBar(state: state, dark: true)
+        } else if state.offerFix {
             HStack(spacing: 8) {
                 Text(state.bubble ?? "Tests failed").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(.white).lineLimit(1)
                 Button(state.fixLabel) { state.fixTests() }.buttonStyle(.borderedProminent).tint(.purple).controlSize(.small)

@@ -5,7 +5,7 @@
 #   ./make-app.sh --install  build and move into /Applications
 set -e
 cd "${0:A:h}"
-VERSION="1.3"
+VERSION="1.4"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release
@@ -44,6 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSRemindersFullAccessUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
   <key>NSRemindersUsageDescription</key><string>Kiri adds reminders when you ask it to.</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Kiri reads today's meetings for your daily brief.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Kiri reads your unread mail count from the Mail app for your daily brief.</string>
   <key>NSCalendarsUsageDescription</key><string>Kiri reads today's meetings for your daily brief.</string>
   <key>NSHumanReadableCopyright</key><string>Kiri — a desktop pet that codes with you.</string>
 </dict>
