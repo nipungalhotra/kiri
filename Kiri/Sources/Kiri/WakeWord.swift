@@ -36,6 +36,14 @@ final class WakeWord {
     private var commandStart: Int?
     private var transcript = ""
     private var silence: DispatchWorkItem?
+    /// The last reason listening couldn't start (logged once, not on every retry).
+    private var lastProblem: String?
+
+    private func problem(_ message: String) {
+        guard message != lastProblem else { return }
+        lastProblem = message
+        Log.write(message)
+    }
 
     /// Audio-thread-safe holder for the current request.
     private final class Feed: @unchecked Sendable {
@@ -106,9 +114,9 @@ final class WakeWord {
 
     private func start() {
         guard !running else { return }
-        guard let recognizer, recognizer.isAvailable else { Log.write("wake: recognizer unavailable"); return }
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else { Log.write("wake: no speech permission"); return }
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { Log.write("wake: no mic permission"); return }
+        guard let recognizer, recognizer.isAvailable else { problem("wake: recognizer unavailable"); return }
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else { problem("wake: no speech permission"); return }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { problem("wake: no mic permission"); return }
         let input = engine.inputNode
         input.removeTap(onBus: 0)
         let feed = self.feed
@@ -116,6 +124,7 @@ final class WakeWord {
         engine.prepare()
         do { try engine.start() } catch { input.removeTap(onBus: 0); Log.write("wake: mic start failed: \(error.localizedDescription)"); return }
         running = true
+        lastProblem = nil
         Log.write("wake: listening for Hey Hoot (\(recognizer.locale.identifier))")
         newTask()
     }
@@ -234,7 +243,15 @@ final class WakeWord {
         silence?.cancel()
         let work = DispatchWorkItem { WakeWord.shared.finishWake() }
         silence = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (rest.isEmpty ? 4.0 : 1.1), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.silenceWait(sinceWake: Date().timeIntervalSince(wokeAt ?? Date()), hasCommand: !rest.isEmpty), execute: work)
+    }
+
+    /// How long to wait before acting on what was heard. Background noise keeps the recognizer busy,
+    /// so the waits count from when "Hey Hoot" was heard, not from the last sound:
+    /// just the name → act 4 s after it; a command → 1.1 s after the last word, but never past 12 s.
+    static func silenceWait(sinceWake: TimeInterval, hasCommand: Bool) -> TimeInterval {
+        if !hasCommand { return max(0, 4.0 - sinceWake) }
+        return min(1.1, max(0, 12.0 - sinceWake))
     }
 
     /// What was said after the wake phrase ("" if nothing yet).

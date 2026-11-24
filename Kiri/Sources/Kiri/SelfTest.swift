@@ -123,6 +123,9 @@ enum SelfTest {
         check("speech drops emoji", Voice.speakable("🔊 Volume 40% 🦉") == "Volume 40%")
         check("stop phrase interrupts", WakeWord.stopPattern.firstMatch(in: "blah blah hoot stop", range: NSRange(location: 0, length: 19)) != nil)
         check("“thanks” ends a voice conversation", PetState.endsConversation("Thanks!") && PetState.endsConversation("that's all") && !PetState.endsConversation("open Safari"))
+        check("noise can't stretch the wake wait", WakeWord.silenceWait(sinceWake: 0, hasCommand: false) == 4 && WakeWord.silenceWait(sinceWake: 3, hasCommand: false) == 1
+              && WakeWord.silenceWait(sinceWake: 9, hasCommand: false) == 0 && WakeWord.silenceWait(sinceWake: 2, hasCommand: true) == 1.1
+              && WakeWord.silenceWait(sinceWake: 14, hasCommand: true) == 0)
         check("wake keeps listening for the command", WakeWord.command(in: "Hey Hoot") == "" && WakeWord.command(in: "Hey Hoot, open Safari") == "open Safari" && WakeWord.command(in: "open Safari") == "open Safari")
         check("“Hey, brief me” wakes for the brief", WakeWord.commandOffset(in: "Hey brief me") != nil)
         check("“Hey commit this” wakes for the commit helper", WakeWord.commandOffset(in: "Hey, commit this") != nil)
