@@ -27,6 +27,11 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Expressive:** live eyes follow your mouse and react to moods, a quick “oh!” when surprised, and a beak that talks while Kiri speaks.
 - **Light on your Mac:** 8–24 fps, GPU-drawn, and it pauses when hidden.
 
+### New in 1.5.1 beta
+
+- **Faster "Hey Hoot"**: background noise no longer drags out the wait. Say just "Hey Hoot" and Hoot is listening for your request within 4 seconds; say the whole request and it acts about a second after you stop.
+- If speech or mic permission is missing, the log notes it once instead of filling up.
+
 ### New in 1.5 beta (Jarvis-style Hoot)
 - **Instant Mac commands, no waiting for Claude:** *“volume up”*, *“set volume to 30”*, *“mute”*, *“minimise this”*, *“minimise the Safari window”*, *“full screen”*, *“move this to the left”*, *“play”*, *“next song”*, *“set a timer for 5 minutes”*, *“what time is it”*, *“battery”*, *“open Notes”*. Moving windows needs Accessibility permission.
 - **Answers start right away:** Hoot says *“On it”* at once and speaks Claude's reply sentence by sentence as it arrives.
@@ -68,7 +73,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="Kiri/docs/kiri-notch.png" width="420"> | <img src="Kiri/docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.5.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.5.1.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -105,7 +110,7 @@ cd Kiri
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.5.dmg installer
+./make-dmg.sh          # dist/Kiri-1.5.1.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 
