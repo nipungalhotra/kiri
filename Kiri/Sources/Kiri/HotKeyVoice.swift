@@ -34,6 +34,11 @@ final class Voice: NSObject {
 
     var isSpeaking: Bool { synth.isSpeaking }
 
+    override init() {
+        super.init()
+        synth.delegate = self
+    }
+
     func speak(_ text: String) {
         let spoken = Self.speakable(text)
         guard !spoken.isEmpty else { return }
@@ -44,6 +49,17 @@ final class Voice: NSObject {
         u.pitchMultiplier = 1.12
         synth.speak(u)
         Log.write("speaking \(spoken.count) chars")
+    }
+
+    /// Add a sentence after whatever Hoot is already saying (for speaking a reply as it streams in).
+    func enqueue(_ text: String) {
+        let spoken = Self.speakable(text)
+        guard !spoken.isEmpty else { return }
+        let u = AVSpeechUtterance(string: spoken)
+        u.voice = Self.chosenVoice
+        u.rate = 0.5
+        u.pitchMultiplier = 1.12
+        synth.speak(u)
     }
 
     func stop() {
@@ -71,7 +87,10 @@ final class Voice: NSObject {
     /// The voice the user picked in the menu, else the best female voice (Samantha if nothing better).
     static var chosenVoice: AVSpeechSynthesisVoice? {
         if let id = UserDefaults.standard.string(forKey: "voiceID"), let v = AVSpeechSynthesisVoice(identifier: id) { return v }
-        return femaleVoices.first { $0.quality != .default }
+        let english = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en") }
+        return femaleVoices.first { $0.quality == .premium }
+            ?? english.first { $0.quality == .premium }
+            ?? femaleVoices.first { $0.quality != .default }
             ?? femaleVoices.first { $0.name == "Samantha" }
             ?? femaleVoices.first
             ?? AVSpeechSynthesisVoice(language: "en-US")
@@ -88,9 +107,27 @@ final class Voice: NSObject {
         for i in parts.indices where i % 2 == 1 { parts[i] = " (code shown on screen) " }
         var s = parts.joined()
         for token in ["**", "__", "`", "#", "> ", "- "] { s = s.replacingOccurrences(of: token, with: " ") }
+        // emoji would be read out by name ("speaker high volume"), so drop them
+        s = String(String.UnicodeScalarView(s.unicodeScalars.filter { !($0.properties.isEmojiPresentation || ($0.properties.isEmoji && $0.value > 0x2000)) && $0.value != 0xFE0F && $0.value != 0x200D }))
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         s = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.count > 600 { s = String(s.prefix(600)) + "… the rest is on screen." }
         return s
+    }
+}
+
+/// Lets the glowing ring pulse with each spoken word.
+extension Voice: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) {
+        DispatchQueue.main.async { VoiceHUD.shared.speaking = true; VoiceHUD.shared.lastWord = Date() }
+    }
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, willSpeakRangeOfSpeechString r: NSRange, utterance u: AVSpeechUtterance) {
+        DispatchQueue.main.async { VoiceHUD.shared.lastWord = Date() }
+    }
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { Self.ended(s) }
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { Self.ended(s) }
+    nonisolated private static func ended(_ s: AVSpeechSynthesizer) {
+        // more sentences may be queued: only stop the ring when nothing is left to say
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if !Voice.shared.isSpeaking { VoiceHUD.shared.speaking = false } }
     }
 }

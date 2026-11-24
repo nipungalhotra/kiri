@@ -77,14 +77,26 @@ final class WakeWord {
     var isBusy: () -> Bool = { false }
     private var cooldownUntil = Date.distantPast
 
+    /// While Hoot is talking the mic stays on, so you can interrupt with "Hey Hoot…" or "Hoot, stop".
+    /// (Only the exact wake phrase counts then, so Hoot's own voice can't wake it.)
     private var shouldPause: Bool {
-        VoiceInput.shared.listening || Voice.shared.isSpeaking || isBusy() || Date() < cooldownUntil
+        VoiceInput.shared.listening || (isBusy() && !Voice.shared.isSpeaking) || Date() < cooldownUntil
     }
+    private var wasSpeaking = false
+    /// "Hoot, stop" / "stop, Hoot" while Hoot is talking.
+    static let stopPattern = try! NSRegularExpression(
+        pattern: #"\b(?:(?:hey[\s,]+)?(?:hoot|hood|hut|kiri)[\s,]+(?:stop|wait|quiet|enough|shush|shut up)|(?:stop|quiet|enough|wait)[\s,]+(?:hoot|hood|kiri))\b"#,
+        options: [.caseInsensitive])
+    /// Fires when you talk over Hoot ("Hoot, stop").
+    var onInterrupt: (() -> Void)?
 
     private func tick() {
         guard enabled else { return }
         if shouldPause { if running { stop() }; return }
         if !running { start(); return }
+        let speaking = Voice.shared.isSpeaking
+        if wasSpeaking && !speaking && commandStart == nil { wasSpeaking = false; newTask(); return }   // drop Hoot's own words
+        wasSpeaking = speaking
         guard commandStart == nil else { return }
         // Apple limits one task to about a minute. Swap in a fresh one during a quiet moment
         // (never in the middle of "Hey Hoot"), or at 55 s at the latest.
@@ -198,7 +210,19 @@ final class WakeWord {
         transcript = text
         if Date() < testUntil { onTestHeard?(text) }
         if commandStart == nil {
-            guard let offset = Self.commandOffset(in: text) else { return }
+            let speaking = Voice.shared.isSpeaking
+            if speaking, Self.stopPattern.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil {
+                Voice.shared.stop()
+                Log.write("wake: interrupted (stop)")
+                newTask()
+                onInterrupt?()
+                return
+            }
+            // while Hoot talks, only the exact wake phrase counts (so its own voice can't trigger it)
+            let found: Int? = speaking ? Self.wakePattern.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)).last
+                .flatMap { Range($0.range, in: text) }.map { text.distance(from: text.startIndex, to: $0.upperBound) } : Self.commandOffset(in: text)
+            guard let offset = found else { return }
+            if speaking { Voice.shared.stop(); Log.write("wake: interrupted Hoot") }
             commandStart = offset
             wokeAt = Date()
             Log.write("wake word heard")

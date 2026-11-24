@@ -196,6 +196,8 @@ struct NotchIsland: View {
     let notch: NotchInfo
     let expanded: Bool
     @ObservedObject private var gate = RenderGate.shared
+    @ObservedObject private var hud = VoiceHUD.shared
+    @ObservedObject private var mic = VoiceInput.shared
 
     var body: some View {
         TimelineView(.animation(minimumInterval: gate.interval(for: state.mood), paused: gate.paused)) { ctx in
@@ -243,6 +245,10 @@ struct NotchIsland: View {
                 Circle().fill(statusColor).frame(width: 7, height: 7).shadow(color: statusColor, radius: 4)
                     .opacity(state.mood == .idle ? 0 : 1)
                 Spacer()
+                let mode = hud.mode(listening: mic.listening, busy: state.busy)
+                if mode == .listening || mode == .speaking {
+                    VoiceBars(mode: mode, t: t, level: hud.level(mode, at: Date()))   // live voice in the notch
+                }
             }
             .padding(.horizontal, NotchLayout.flare + 14)
             .padding(.bottom, 12)
@@ -264,6 +270,14 @@ struct NotchIsland: View {
     private func expandedContent(_ t: Double) -> some View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottom) {
+                let voice = hud.mode(listening: mic.listening, busy: state.busy)
+                if voice == .listening || voice == .speaking {
+                    HStack(spacing: 150) {
+                        VoiceBars(mode: voice, t: t, level: hud.level(voice, at: Date()), count: 7)
+                        VoiceBars(mode: voice, t: t + 0.7, level: hud.level(voice, at: Date()), count: 7)
+                    }
+                    .offset(y: -44)
+                } else {
                 switch state.mood {
                 case .working:
                     SoundWaves(t: t, color: Color(red: 0.4, green: 0.8, blue: 1), spread: 150, bars: 11).offset(y: -44)
@@ -279,6 +293,7 @@ struct NotchIsland: View {
                     }
                     .offset(x: 84, y: -70)
                 default: EmptyView()
+                }
                 }
                 NotchOwl(mood: state.mood, t: t, height: 150)
                     .frame(height: 104, alignment: .top)
@@ -303,7 +318,7 @@ struct NotchIsland: View {
                 Button("Not now") { state.dismissFix() }.buttonStyle(.bordered).controlSize(.small)
             }
         } else {
-            Text(state.bubble ?? state.activity ?? defaultLine)
+            Text(mic.listening ? "Listening… 🎙" : (hud.speaking && state.bubble == nil ? "Speaking…" : (state.bubble ?? state.activity ?? defaultLine)))
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)

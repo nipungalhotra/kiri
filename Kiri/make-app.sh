@@ -5,7 +5,7 @@
 #   ./make-app.sh --install  build and move into /Applications
 set -e
 cd "${0:A:h}"
-VERSION="1.4"
+VERSION="1.5"
 
 if [[ "$1" == "--fast" ]]; then
   swift build -c release

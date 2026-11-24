@@ -97,6 +97,31 @@ enum SelfTest {
         check("custom command needs the whole name", CustomCommands.match("say hello to mom and tell her", in: [hello]) == nil)
         check("script file becomes a spoken name", CustomCommands.displayName(forFile: URL(fileURLWithPath: "/x/Start-Standup.sh")) == "start standup")
 
+        check("profile requests understood", UserProfile.parse("Call me Nip") == .callMe("Nip")
+            && UserProfile.parse("remember that I like short answers") == .remember("I like short answers")
+            && UserProfile.parse("Remember I use tabs, not spaces") == .remember("I use tabs, not spaces")
+            && UserProfile.parse("remember to buy milk") == nil && UserProfile.parse("what do you remember about me?") == .list
+            && UserProfile.parse("forget that I like short answers") == .forget("i like short answers"))
+        check("yes/no after a heads-up", PetState.isYes("yes please") && PetState.isYes("fix it") && PetState.isNo("not now") && !PetState.isYes("what failed"))
+        check("join the meeting is instant", QuickCommand.parse("join the meeting") == .joinMeeting && QuickCommand.parse("Join") == .joinMeeting)
+        check("quick commands understood", QuickCommand.parse("Volume up") == .volumeStep(15) && QuickCommand.parse("set the volume to 30%") == .volume(30)
+            && QuickCommand.parse("can you minimise this window please") == .minimize(app: nil) && QuickCommand.parse("minimise the Claude window") == .minimize(app: "claude")
+            && QuickCommand.parse("move this to the left") == .snap(.left) && QuickCommand.parse("next song") == .media(.next)
+            && QuickCommand.parse("set a timer for 5 minutes") == .timer(seconds: 300) && QuickCommand.parse("10 second timer") == .timer(seconds: 10)
+            && QuickCommand.parse("what time is it?") == .time && QuickCommand.parse("open Notes") == .openApp("notes"))
+        check("quick commands leave real requests to Claude", QuickCommand.parse("fix the failing test") == nil && QuickCommand.parse("open a PR") == nil
+            && QuickCommand.parse("play with the layout in Views.swift") == nil && QuickCommand.parse("what time is it in Tokyo") == nil)
+        check("local model replies parsed", LocalBrain.parseReply(#"{"command":"timer 5 minutes"}"#) == .command(.timer(seconds: 300))
+            && LocalBrain.parseReply(#"{"answer":"Paris."}"#) == .answer("Paris.") && LocalBrain.parseReply(#"{"claude":true}"#) == .claude
+            && LocalBrain.clearlyNeedsClaude("fix the bug in main.swift") && !LocalBrain.clearlyNeedsClaude("tell me a joke"))
+        do {
+            var s = SpeechStream()
+            let a = s.feed("Sure, I'll open it. KIRI_ACTION {\"action\":\"open_app\",\"name\":\"Safari\"}\nHere's code:\n```\nlet x = 1. y\n```\nDone")
+            let b = s.finish()
+            check("streamed speech skips code and actions", a + b == ["Sure, I'll open it.", "Here's code:", "Done"])
+        }
+        check("speech drops emoji", Voice.speakable("🔊 Volume 40% 🦉") == "Volume 40%")
+        check("stop phrase interrupts", WakeWord.stopPattern.firstMatch(in: "blah blah hoot stop", range: NSRange(location: 0, length: 19)) != nil)
         check("“thanks” ends a voice conversation", PetState.endsConversation("Thanks!") && PetState.endsConversation("that's all") && !PetState.endsConversation("open Safari"))
         check("wake keeps listening for the command", WakeWord.command(in: "Hey Hoot") == "" && WakeWord.command(in: "Hey Hoot, open Safari") == "open Safari" && WakeWord.command(in: "open Safari") == "open Safari")
         check("“Hey, brief me” wakes for the brief", WakeWord.commandOffset(in: "Hey brief me") != nil)

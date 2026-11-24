@@ -3,6 +3,8 @@ import Foundation
 enum ClaudeEvent {
     case session(String)
     case text(String)
+    /// A few new words of the reply as they stream in (for speaking sentence by sentence).
+    case textDelta(String)
     case tool(String)
     /// Final result: text, whether it was an error, and how many tool calls were refused.
     case done(String?, isError: Bool, denied: Int)
@@ -20,10 +22,16 @@ enum ClaudeEvent {
 final class ClaudeRunner {
     private var process: Process?
 
-    static let persona = """
+    /// Hoot's instructions for Claude, including your name and what you asked Hoot to remember.
+    static var persona: String { basePersona + personality + UserProfile.prompt }
+
+    static let personality = " Personality: calm, confident and quietly witty, like a very capable assistant. A dry joke now and then, never cheesy, never gushing. Use the user's name occasionally, not in every reply."
+
+    static let basePersona = """
     You are Kiri (Hoot the owl), a friendly desktop pet on the user's Mac that helps them code and \
     with small Mac tasks. You usually run inside their project folder. Be warm, a little playful, and brief: \
     at most about 120 words of plain text (short code snippets are fine, no headings). \
+    Your first sentence is read aloud while you work, so make it short and say the answer or what you'll do. \
     When you change files, say exactly which files you changed. \
     If the user mentions a screenshot path, read that image with the Read tool to see their screen. \
     MAC ACTIONS: Kiri can do these for the user. Only when the user asks for one, put it on its own line, \
@@ -161,6 +169,7 @@ final class ClaudeRunner {
             switch e {
             case .session(let id): Log.write("claude session \(id)")
             case .text(let t): Log.write("claude text: \(Log.secret(t))")
+            case .textDelta: break
             case .tool(let what): Log.write("claude tool: \(what)")
             case .done(let r, let err, let denied): Log.write("claude done error=\(err) denied=\(denied): \(Log.secret(r ?? ""))")
             case .failed(let why): Log.write("claude FAILED: \(why)")
@@ -179,7 +188,7 @@ final class ClaudeRunner {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         var args = ["-p", prompt,
-                    "--output-format", "stream-json", "--verbose",
+                    "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                     "--permission-mode", (allowEdits || forceEdits) ? "acceptEdits" : "default",
                     "--append-system-prompt", Self.persona]
         if let s = sessionID { args += ["--resume", s] }
@@ -298,6 +307,11 @@ final class ClaudeRunner {
                 }
                 return []
             }
+        case "stream_event":
+            guard let ev = obj["event"] as? [String: Any], ev["type"] as? String == "content_block_delta",
+                  let delta = ev["delta"] as? [String: Any], delta["type"] as? String == "text_delta",
+                  let t = delta["text"] as? String, !t.isEmpty else { return [] }
+            return [.textDelta(t)]
         case "result":
             var events: [ClaudeEvent] = []
             if let s = obj["session_id"] as? String { events.append(.session(s)) }

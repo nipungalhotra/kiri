@@ -27,7 +27,17 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Expressive:** live eyes follow your mouse and react to moods, a quick “oh!” when surprised, and a beak that talks while Kiri speaks.
 - **Light on your Mac:** 8–24 fps, GPU-drawn, and it pauses when hidden.
 
-### New in 1.4 (beta)
+### New in 1.5 beta (Jarvis-style Hoot)
+- **Instant Mac commands, no waiting for Claude:** *“volume up”*, *“set volume to 30”*, *“mute”*, *“minimise this”*, *“minimise the Safari window”*, *“full screen”*, *“move this to the left”*, *“play”*, *“next song”*, *“set a timer for 5 minutes”*, *“what time is it”*, *“battery”*, *“open Notes”*. Moving windows needs Accessibility permission.
+- **Answers start right away:** Hoot says *“On it”* at once and speaks Claude's reply sentence by sentence as it arrives.
+- **Interrupt Hoot:** say *“Hey Hoot…”* or *“Hoot, stop”* while it's talking.
+- **Optional local model:** with [Ollama](https://ollama.com) and `ollama pull llama3.2:3b`, small talk and simple questions are answered on your Mac in about a second. Code still goes to Claude. 🦉 → Options → *How to Set Up the Local Model…*
+- **Nicer voice:** 🦉 → Voice → *Get nicer voices…* explains how to download a Premium voice; Hoot picks it automatically.
+- **Spoken heads-ups:** *“Your meeting starts in 5 minutes”* (say *“join the meeting”* to open the Zoom/Meet/Teams link), CI failures, failed tests or builds, low battery, finished background jobs. When Hoot asks *“Want me to fix it?”*, just say *“yes”*. Hoot stays silent during meetings and in Quiet Mode (🦉 → Options → *Speak Heads-Ups*).
+- **Glowing voice ring:** ripples around Hoot while it listens, a circle of sound bars that pulses with each word while it talks, spinning arcs while it thinks, and a flash when it hears *“Hey Hoot”*. On Macs with a notch, live sound bars show there too. 🦉 → Options → *Glowing Ring When Talking*.
+- **Knows you:** Hoot uses your name and a calm, dry-witted personality. Say *“call me …”*, *“remember that I like short answers”*, *“what do you remember about me”*, *“forget that …”*. Kept on your Mac and shared only with Claude as part of your chats.
+
+### New in 1.4
 - **Keep / Undo:** after Hoot changes code you get **Keep**, **Undo** (puts every file back, new files go to the Trash) and **Compare** (opens FileMerge).
 - **Background jobs:** start a message with *“in the background, …”* or press ⏳. Up to two run while you keep chatting.
 - **Automations:** *“every day at 9am brief me”*, *“every weekday at 6pm run tests”*, *“every hour check my PRs”*, *“list automations”*.
@@ -58,7 +68,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="docs/kiri-notch.png" width="420"> | <img src="docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.4.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.5.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -94,7 +104,7 @@ See **[DEMO.md](DEMO.md)** for a shot-by-shot 30-second demo video script.
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.4.dmg installer
+./make-dmg.sh          # dist/Kiri-1.5.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 

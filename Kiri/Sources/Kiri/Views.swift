@@ -46,6 +46,7 @@ struct PetArea: View {
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
             }
             KiriCharacter(mood: state.mood, leaves: state.leaves, style: state.style)
+                .background(HootHalo(state: state).offset(y: 8))
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)

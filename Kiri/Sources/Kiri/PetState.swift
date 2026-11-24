@@ -77,6 +77,9 @@ final class PetState: ObservableObject {
     /// Quiet mode (Focus): no chatty bubbles or speech unless you ask or something breaks.
     /// A spoken conversation is going on: after each reply Hoot listens for a follow-up.
     var inConversation = false
+    /// Speaks Claude's reply sentence by sentence while it streams in.
+    var speechStream = SpeechStream()
+    var lastClaudeReplyAt = Date.distantPast
     @Published var quiet: Bool {
         didSet { UserDefaults.standard.set(quiet, forKey: "quiet"); PetSignals.shared.quiet = quiet }
     }
@@ -190,9 +193,23 @@ final class PetState: ObservableObject {
 
     /// "Hey Hoot, …" → send the rest; "Hey Hoot" alone → listen for the command.
     private func setUpWakeWord() {
+        QuickCommands.startTracking()
+        QuickCommands.onTimerDone = { [weak self] label in
+            guard let self else { return }
+            self.note("⏰ Your \(label) timer is done!")
+            self.say("⏰ Time's up! (\(label))", mood: .happy, for: 8)
+            if self.speakReplies && !self.quiet { Voice.shared.speak(Self.withName("Your \(label) timer is done.", chance: 1)) }
+        }
         let wake = WakeWord.shared
         wake.isBusy = { [weak self] in self?.busy ?? false }
+        wake.onInterrupt = { [weak self] in
+            self?.inConversation = false
+            self?.say("Okay 🤐", for: 2)
+        }
         wake.onHeardName = { [weak self] in
+            self?.inConversation = false
+            VoiceHUD.shared.wokeAt = Date()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { VoiceHUD.shared.objectWillChange.send() }   // hide the flash
             PetSignals.shared.surprise(for: 0.6)
             NSSound(named: "Tink")?.play()
             if Date() < wake.testUntil { self?.say("✅ That woke me!", mood: .happy, for: 3) }
@@ -276,7 +293,7 @@ final class PetState: ObservableObject {
         guard !busy, !testing, !offerFix else { return }
         if low {
             say("Battery at \(b.percent)% 🔋 please plug in!", mood: .sad, for: 8)
-            if speakReplies && !warnedBattery { Voice.shared.speak("Your battery is at \(b.percent) percent. Please plug in!") }
+            if !warnedBattery { headsUp("Your battery is at \(b.percent) percent. You might want to plug in.") }
             warnedBattery = true
         } else {
             warnedBattery = false
@@ -290,10 +307,11 @@ final class PetState: ObservableObject {
         if focusCoach.minuteTick(), !busy, !testing, !quiet {
             say("You've been coding for 90 minutes 💪 Time for a stretch break? 🧘", for: 12)
             feel(.happy, for: 3)
-            if speakReplies { Voice.shared.speak("You've been coding for ninety minutes. Time for a short stretch break?") }
+            headsUp("You've been coding for ninety minutes. Time for a short stretch break?")
         }
         if !busy, !testing, !offerFix, !quiet, bubble == nil, let morning = morningGreeting() { say(morning, for: 10) }
         runDueAutomations()
+        checkMeetings()
         guard !busy, !testing, !offerFix, mood == .idle || mood == .sleepy || (mood == .sad && PetSignals.shared.batteryLow) else { return }
         settle()
         if isLate && !saidGoodnight {
@@ -400,7 +418,7 @@ final class PetState: ObservableObject {
                 self.say(cheer[(self.streak - 1) % cheer.count] + (self.streak > 1 ? " (\(self.streak) in a row)" : ""), for: 6)
                 self.feel(.happy, for: 5)
                 self.note("✅ Tests passed — \(summary)")
-                if self.speakReplies { Voice.shared.speak("All tests passed! Nice work.") }
+                self.headsUp(["All tests passed. Nice work.", "Tests are green.", "Everything passes."].randomElement()!)
             } else {
                 self.streak = 0
                 if silent && !changed && !self.offerFix { self.mood = .sad; self.bubble = nil; return }  // still red: no repeat nag
@@ -411,7 +429,7 @@ final class PetState: ObservableObject {
                 self.offerFix = true
                 self.say("Tests failed 😢 Want me to fix it?", for: nil)
                 self.note("❌ Tests failed — \(summary)")
-                if self.speakReplies { Voice.shared.speak("Some tests failed. Want me to fix it?") }
+                self.headsUp("Some tests failed. Want me to fix it?", offersFix: true)
             }
         }
     }
@@ -469,7 +487,7 @@ final class PetState: ObservableObject {
         offerFix = true
         mood = .sad
         say("`\(f.command.prefix(40))` failed (exit \(f.code)). Want me to look?", for: nil)
-        if speakReplies && !quiet { Voice.shared.speak("Your command failed. Want me to take a look?") }
+        headsUp("Your command failed. Want me to take a look?", offersFix: true)
     }
 
     /// Adds the small zsh hook that reports failed commands (only when the user clicks to do so).
@@ -546,6 +564,45 @@ final class PetState: ObservableObject {
         send(words, spoken: true)
     }
 
+    /// Volume, windows, music, timers, time… done on the Mac right away.
+    func runQuick(_ q: QuickCommand, text: String, spoken: Bool) {
+        messages.append(ChatMessage(role: .user, text: text))
+        Log.write("quick command: \(q)")
+        Task { @MainActor in
+            let result = await QuickCommands.run(q)
+            self.messages.append(ChatMessage(role: .kiri, text: result))
+            if !self.chatOpen { self.say(result, for: 4) }
+            self.feel(.happy, for: 1.5)
+            if self.speakReplies && !self.quiet && spoken { Voice.shared.speak(result) }
+            if spoken { self.continueConversation() }
+        }
+    }
+
+    /// Small talk and simple questions go to the local model first (if one is installed); else Claude.
+    private func askLocalBrain(_ text: String, spoken: Bool) {
+        busy = true
+        mood = .thinking
+        activity = "Thinking…"
+        Task { @MainActor in
+            let route = await LocalBrain.route(text)
+            self.busy = false
+            self.activity = nil
+            switch route {
+            case .command(let q)?:
+                self.runQuick(q, text: text, spoken: spoken)
+            case .answer(let a)?:
+                self.messages.append(ChatMessage(role: .user, text: text))
+                self.messages.append(ChatMessage(role: .kiri, text: a))
+                if !self.chatOpen { self.say(a, for: 8) }
+                self.feel(.happy, for: 2)
+                if self.speakReplies && !self.quiet { Voice.shared.speak(a) }
+                if spoken { self.continueConversation() }
+            default:
+                self.send(text, spoken: spoken, skipLocal: true)
+            }
+        }
+    }
+
     nonisolated static func endsConversation(_ words: String) -> Bool {
         let t = words.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " .,!?").union(.whitespacesAndNewlines))
         return ["thanks", "thank you", "thanks hoot", "thank you hoot", "that's all", "that is all", "that's it", "no", "nope",
@@ -582,7 +639,7 @@ final class PetState: ObservableObject {
     }()
 
     func send(_ prompt: String, shownAs display: String? = nil, cwd: URL? = nil,
-              extraAllowedTools: [String] = [], forceEdits: Bool = false, includeScreen: Bool? = nil, spoken: Bool = false) {
+              extraAllowedTools: [String] = [], forceEdits: Bool = false, includeScreen: Bool? = nil, spoken: Bool = false, skipLocal: Bool = false) {
         Voice.shared.stop()
         if !spoken { inConversation = false }          // typing ends a voice conversation
         Log.write("send pressed busy=\(busy) project=\(projectURL?.path ?? "nil")")
@@ -596,7 +653,17 @@ final class PetState: ObservableObject {
         }
         if display == nil, handleAutomationRequest(text) { return }
         guard !busy else { return }
+        if display == nil, handleProfileRequest(text) { return }
         if display == nil, handleBuiltIn(text) { return }
+        // Instant Mac commands and quick answers, without waiting for Claude
+        if display == nil, cwd == nil, extraAllowedTools.isEmpty, !forceEdits, includeScreen == nil {
+            if let q = QuickCommand.parse(text) { runQuick(q, text: text, spoken: spoken); return }
+            let midChat = sessionID != nil && Date().timeIntervalSince(lastClaudeReplyAt) < 180
+            if !skipLocal, LocalBrain.enabled, !midChat, !LocalBrain.clearlyNeedsClaude(text) {
+                askLocalBrain(text, spoken: spoken)
+                return
+            }
+        }
         currentAsk = display ?? text
         currentIsFix = false
         let dir = cwd ?? projectURL ?? Self.workspace
@@ -613,6 +680,8 @@ final class PetState: ObservableObject {
         if !chatOpen { say(wantsScreen ? "Looking at your screen… 👀" : "Thinking… 💭", for: nil) }
         onBuddyEvent?(.owlThinking)
 
+        if spoken && speakReplies && !quiet { Voice.shared.speak(Self.withName(["On it.", "Let me check.", "One sec.", "Sure, working on it.", "Okay, let me see."].randomElement()!, chance: 4)) }
+        speechStream = SpeechStream()
         var ask = text
         if sessionID == nil, let memory = ProjectMemory.context(for: cwd ?? projectURL) { ask += "\n\n" + memory }
         guard wantsScreen else {
@@ -676,6 +745,9 @@ final class PetState: ObservableObject {
         switch event {
         case .session(let id):
             sessionID = id
+        case .textDelta(let t):
+            guard speakReplies && !quiet else { break }
+            for sentence in speechStream.feed(t) { Voice.shared.enqueue(sentence) }
         case .text(let t):
             if mood != .thinking { PetSignals.shared.surprise(for: 0.5) }   // "oh!" when an answer starts
             let (actions, cleaned) = MacAction.extract(from: t)
@@ -715,7 +787,11 @@ final class PetState: ObservableObject {
             } else {
                 bubble = nil
             }
-            if speakReplies, let r = spoken, !r.isEmpty { Voice.shared.speak(r) }
+            lastClaudeReplyAt = Date()
+            if speechStream.started {
+                for sentence in speechStream.finish() { Voice.shared.enqueue(sentence) }   // the last bit
+            } else if speakReplies, !quiet, let r = spoken, !r.isEmpty { Voice.shared.speak(r) }
+            speechStream = SpeechStream()
             feel(.happy, for: 2.5)
             let actions = pendingActions
             let denied = deniedCalls
@@ -790,5 +866,60 @@ final class PetState: ObservableObject {
         }
         send("I approved what you asked for (\(denied.count) action\(denied.count == 1 ? "" : "s")). Please continue.",
              shownAs: "✅ Allowed once, continue", extraAllowedTools: tools, forceEdits: edits)
+    }
+}
+
+/// Cuts a streaming reply into sentences Hoot can say right away, skipping code blocks and action lines.
+struct SpeechStream {
+    private var buffer = ""
+    private var inCode = false
+    private var spokenChars = 0
+    private var cut = false
+    private(set) var started = false
+    static let limit = 650
+
+    mutating func feed(_ delta: String) -> [String] {
+        buffer += delta
+        var out: [String] = []
+        while let end = Self.boundary(in: buffer) {
+            let piece = String(buffer[..<end])
+            buffer = String(buffer[end...])
+            out += take(piece)
+        }
+        return out
+    }
+
+    mutating func finish() -> [String] {
+        let rest = buffer
+        buffer = ""
+        return take(rest)
+    }
+
+    /// End of the first full sentence or line in `s`.
+    static func boundary(in s: String) -> String.Index? {
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            let next = s.index(after: i)
+            if c == "\n" { return next }
+            if ".!?".contains(c), next < s.endIndex, s[next] == " " || s[next] == "\n" { return next }
+            i = next
+        }
+        return nil
+    }
+
+    private mutating func take(_ piece: String) -> [String] {
+        started = true
+        var said: [String] = []
+        for part in piece.components(separatedBy: "```").enumerated() {
+            if part.offset > 0 { inCode.toggle() }
+            if inCode { continue }
+            let t = part.element.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, !t.contains("KIRI_ACTION"), !t.hasPrefix("{"), !cut else { continue }
+            if spokenChars + t.count > Self.limit { cut = true; said.append("The rest is on screen."); continue }
+            spokenChars += t.count
+            said.append(t)
+        }
+        return said
     }
 }

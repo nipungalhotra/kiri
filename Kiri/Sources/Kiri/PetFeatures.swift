@@ -84,7 +84,8 @@ extension PetState {
         let h = Calendar.current.component(.hour, from: Date())
         guard greetedDay != day, h >= 5, h < 12, let line = ProjectMemory.morningLine(for: projectURL) else { return nil }
         greetedDay = day
-        return "Morning! ☀️ \(line) Say “brief me” for your day."
+        let name = UserProfile.name
+        return "Morning\(name.isEmpty ? "" : ", " + name)! ☀️ \(line) Say “brief me” for your day."
     }
 
     func dailyBrief() {
@@ -118,7 +119,7 @@ extension PetState {
             offerFix = true
             mood = .sad
             say("CI failed on #\(pr.number) “\(pr.title.prefix(40))” 😢 Want me to fix it?", for: nil)
-            if speakReplies && !quiet { Voice.shared.speak("CI failed on your pull request. Want me to fix it?") }
+            headsUp("CI failed on your pull request \(pr.title.prefix(50)). Want me to fix it?", offersFix: true)
         case .ciPassed(let pr):
             guard !quiet else { return }
             say("CI is green on #\(pr.number)! ✅", for: 5)
@@ -177,7 +178,7 @@ extension PetState {
         mood = .sad
         PetSignals.shared.surprise(for: 0.6)
         say("\(f.project) build failed: \(short.first?.prefix(70) ?? "")\(f.errors.count > 1 ? " (+\(f.errors.count - 1) more)" : "") 😣", for: nil)
-        if speakReplies && !quiet { Voice.shared.speak("Your Xcode build failed. Want me to fix it?") }
+        headsUp("Your Xcode build failed. Want me to fix it?", offersFix: true)
     }
 
     // MARK: Evolution

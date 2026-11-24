@@ -82,7 +82,7 @@ extension PetState {
         let files = EditTracker.changedFiles(calls: task.calls, denied: task.denied, root: root)
         if !busy { say(ok ? "Background job done ✅ \(task.title.prefix(40))" : "A background job had trouble ⚠️", for: 6) }
         if ok && !busy { feel(.happy, for: 2) }
-        if speakReplies && !quiet && !busy { Voice.shared.speak(ok ? "Your background job is done." : "A background job had trouble.") }
+        if !busy { headsUp(ok ? "Your background job is done." : "A background job had trouble.") }
         offerReview(title: task.title, files: files, snapshot: task.snapshot)
         // forget finished tasks after a while
         DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in

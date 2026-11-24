@@ -272,6 +272,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Offer Help When I Copy an Error", #selector(toggleOption(_:)), "watchClipboard",
                  on: (d.object(forKey: "watchClipboard") as? Bool ?? true) && ClipboardWatcher.autoAllowed)
             item("Show Hoot's Accessories", #selector(toggleOption(_:)), "showAccessories", on: Evolution.shared.showAccessories)
+            item("Glowing Ring When Talking", #selector(toggleOption(_:)), "voiceRing", on: VoiceHUD.enabled)
+            item("Speak Heads-Ups (meetings, CI, tests…)", #selector(toggleOption(_:)), "spokenHeadsUps", on: PetState.spokenHeadsUps)
+            item("Use a Local Model for Quick Answers", #selector(toggleOption(_:)), "useLocalModel", on: LocalBrain.enabled)
+            item("How to Set Up the Local Model…", #selector(localModelHelp))
             menu.addItem(.separator())
             item("Forget This Project's Memory…", state.projectURL == nil ? nil : #selector(forgetMemory))
         } else if menu === buddyMenu {
@@ -320,7 +324,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let id = sender.representedObject as? String, let v = AVSpeechSynthesisVoice(identifier: id) else { return }
         Voice.choose(v)
     }
+    @objc private func localModelHelp() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "Quick answers from a model on your Mac"
+        a.informativeText = """
+        Hoot can answer small talk and simple questions in about a second using a free model that runs on this Mac, \
+        and hand everything about code to Claude. Nothing leaves your Mac.
+
+        1. Install Ollama from ollama.com (or run: brew install ollama) and open it.
+        2. In Terminal run: ollama pull \(LocalBrain.defaultModel)   (about 2 GB)
+        3. That's it: Hoot uses it automatically. Turn it off in 🦉 → Options.
+
+        Volume, windows, music, timers and the time already work instantly without it.
+        """
+        a.addButton(withTitle: "Open ollama.com")
+        a.addButton(withTitle: "OK")
+        if a.runModal() == .alertFirstButtonReturn, let u = URL(string: "https://ollama.com/download") { NSWorkspace.shared.open(u) }
+    }
     @objc private func openVoiceSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "Give Hoot a nicer voice"
+        a.informativeText = "In the window that opens: System Voice → Manage Voices… → English → download a voice marked “(Premium)”, such as Zoe or Ava. Then pick it in 🦉 → Voice. Premium voices sound much more natural."
+        a.addButton(withTitle: "Open Settings")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
         // Accessibility → Spoken Content, where Premium/Enhanced voices (e.g. Ava, Zoe, Isha) can be downloaded.
         if let u = URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess?SpokenContent") { NSWorkspace.shared.open(u) }
     }
@@ -438,6 +467,22 @@ enum KiriApp {
                 OwlFrame(mood: .working, t: 13.4, followMouse: false)
                 OwlFrame(mood: .thinking, t: 2.1, followMouse: false)
             }.padding(10).background(Color(white: 0.92))
+            let r = ImageRenderer(content: view)
+            r.scale = 2
+            if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: URL(fileURLWithPath: args[i + 1])) }
+            return
+        }
+        if let i = args.firstIndex(of: "--hud-shot"), i + 1 < args.count {
+            // Hoot with the voice ring in each mode: Kiri --hud-shot out.png
+            let modes: [(VoiceHUD.Mode, Double, Mood)] = [(.listening, 0.6, .working), (.speaking, 0.9, .idle), (.thinking, 0, .thinking), (.idle, 0, .idle)]
+            let view = HStack(spacing: 0) {
+                ForEach(0..<modes.count, id: \.self) { k in
+                    let m = modes[k]
+                    OwlFrame(mood: m.2, t: 3.3 + Double(k), followMouse: false, lookOverride: .zero, previewTalking: m.0 == .speaking)
+                        .background(HaloCanvas(mode: m.0, t: 2.0 + Double(k), level: m.1, flash: k == 3 ? 0.35 : 99).offset(y: 8))
+                }
+            }.padding(10).background(Color(white: args.contains("--dark") ? 0.12 : 0.92))
             let r = ImageRenderer(content: view)
             r.scale = 2
             if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
