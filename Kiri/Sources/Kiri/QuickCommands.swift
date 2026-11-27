@@ -109,6 +109,7 @@ enum QuickCommands {
             _ = osascript(on ? "set volume with output muted" : "set volume without output muted")
             return on ? "🔇 Muted" : "🔊 Sound back on"
         case .minimize(let name):
+            let name = name.flatMap { spokenAppName($0) }
             return windowAction { app, win in
                 if let name {
                     guard let target = runningApp(named: name) else { return "I couldn't find an open app called “\(name)”." }
@@ -204,8 +205,21 @@ enum QuickCommands {
         return AXUIElementCopyAttributeValue(el, attr as CFString, &v) == .success ? v : nil
     }
 
+    /// What people say vs. the app's real name: speech-to-text writes "Claude" as "cloud", and people add
+    /// "desktop", "app" or "window". Returns nil for "this" / "current window" (= the front window).
+    nonisolated static func spokenAppName(_ raw: String) -> String? {
+        var n = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        for suffix in [" desktop app", " desktop", " application", " app", " window", " session", " windows"] where n.hasSuffix(suffix) {
+            n = String(n.dropLast(suffix.count))
+        }
+        if ["", "this", "it", "current", "the current", "this one", "current window", "the window", "everything"].contains(n) { return nil }
+        let sounds = ["cloud": "claude", "clod": "claude", "claud": "claude", "clawed": "claude", "clyde": "claude", "cloud code": "claude",
+                      "chrome browser": "google chrome", "vs code": "visual studio code", "vscode": "visual studio code"]
+        return sounds[n] ?? n
+    }
+
     static func runningApp(named name: String) -> NSRunningApplication? {
-        let n = name.lowercased()
+        let n = (spokenAppName(name) ?? name).lowercased()
         let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
         return apps.first { ($0.localizedName ?? "").lowercased() == n }
             ?? apps.first { ($0.localizedName ?? "").lowercased().hasPrefix(n) }
@@ -216,7 +230,8 @@ enum QuickCommands {
     nonisolated static func appURL(named raw: String) -> URL? {
         let aliases = ["vs code": "Visual Studio Code", "vscode": "Visual Studio Code", "code": "Visual Studio Code", "chrome": "Google Chrome",
                        "settings": "System Settings", "system preferences": "System Settings", "app store": "App Store", "facetime": "FaceTime"]
-        let name = aliases[raw.lowercased()] ?? raw
+        let spoken = spokenAppName(raw) ?? raw
+        let name = aliases[spoken] ?? (spoken == "claude" ? "Claude" : raw)
         let ws = NSWorkspace.shared
         for dir in ["/Applications", "/System/Applications", "/System/Applications/Utilities", "/Applications/Utilities",
                     NSHomeDirectory() + "/Applications"] {

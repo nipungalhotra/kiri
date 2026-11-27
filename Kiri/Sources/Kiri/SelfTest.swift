@@ -132,6 +132,10 @@ enum SelfTest {
 
         check("misheard “Hey food, open Safari” still wakes", WakeWord.commandOffset(in: "Hey food, open Safari").map { String("Hey food, open Safari".dropFirst($0)).trimmingCharacters(in: CharacterSet(charactersIn: " ,")) } == "open Safari")
         check("“Hey hot” then a pause wakes", WakeWord.commandOffset(in: "Hey hot") != nil)
+        check("misheard Hey Hoot still wakes", WakeWord.command(in: "Hey what time is it") == "what time is it"
+              && WakeWord.command(in: "Hey Google open Safari") == "open Safari" && WakeWord.command(in: "Hey, volume up") == "volume up"
+              && WakeWord.commandOffset(in: "hey how are you") == nil && WakeWord.commandOffset(in: "Hey Siri what time is it") == nil)
+        check("spoken app names", QuickCommands.spokenAppName("cloud desktop") == "claude" && QuickCommands.spokenAppName("this") == nil)
         check("“Hey Google” never wakes Kiri", WakeWord.commandOffset(in: "Hey Google") == nil && WakeWord.commandOffset(in: "Hey Siri open Safari") == nil)
         check("“hey how are you” doesn't wake", WakeWord.commandOffset(in: "hey how are you") == nil)
 

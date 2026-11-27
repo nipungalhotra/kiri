@@ -127,6 +127,7 @@ final class WakeWord {
         lastProblem = nil
         Log.write("wake: listening for Hey Hoot (\(recognizer.locale.identifier))")
         newTask()
+        WakeModel.prepare(for: recognizer.locale) { let w = WakeWord.shared; if w.commandStart == nil, !w.shouldPause { w.newTask() } }   // switch to the trained model once it's built
     }
 
     /// Start a fresh recognition task on the running mic, then retire the old one (no deaf gap).
@@ -137,6 +138,7 @@ final class WakeWord {
         req.requiresOnDeviceRecognition = true      // never leaves the Mac
         req.taskHint = .dictation
         req.contextualStrings = ["Hey Hoot", "Hoot", "Hey Kiri", "Kiri"]   // teach it the unusual name
+        if let lm = WakeModel.configuration { req.customizedLanguageModel = lm }   // and really teach it
         let oldReq = request, oldTask = task
         generation += 1
         let gen = generation
@@ -181,16 +183,21 @@ final class WakeWord {
 
     /// The recognizer often drops "Hoot" and keeps only "Hey". Accept "Hey" + a command verb at the start
     /// of what was heard, or "Hey" alone followed by a pause. Plain chat ("hey, how are you") doesn't match.
-    static let commandWords = #"open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on|brief|daily brief|commit|good morning|what did i copy|achievements|say|plan my day|every|in the background|list automations|stop automation|create|push"#
+    static let commandWords = #"open|launch|remind|run|fix|explain|show|find|organi[sz]e|turn|set|start|check|tell me|what'?s on|brief|daily brief|commit|good morning|what did i copy|achievements|say|plan my day|every|in the background|list automations|stop automation|create|push"# + "|" + assistantWords
+    /// Things people only say to an assistant (so "Hey, what time is it" counts, but "hey, how are you" doesn't).
+    static let assistantWords = #"what time|what'?s the (?:time|date|day)|what day|volume|mute|unmute|pause|play (?:music|some|the|a|my)|next song|previous song|skip|timer|minimi[sz]e|maximi[sz]e|full ?screen|move this|hide|battery|join|close|quit|search|look up|can you|could you|please"#
     static let heyCommandPattern = try! NSRegularExpression(
         pattern: #"^\s*(?:hey|hay|play)[\s,]+(?=(?:"# + commandWords + #")\b)"#,
         options: [.caseInsensitive])
     static let heyAlonePattern = try! NSRegularExpression(pattern: #"^\s*(?:hey|hay)[\s,.!]*$"#, options: [.caseInsensitive])
     /// Other assistants' names: never wake for these.
     static let otherAssistants = #"(?:siri|google|alexa|cortana|gemini)"#
+    /// With a command after it, only the assistants a Mac really answers to are skipped:
+    /// the recognizer often writes "Hey Hoot, open Safari" as "Hey Google, open Safari".
+    static let realAssistants = #"(?:siri)"#
     /// "Hey <any one word>, open Safari" — the recognizer often turns "Hoot" into a random word.
     static let heyAnyCommandPattern = try! NSRegularExpression(
-        pattern: #"^\s*(?:hey|hay|hi|hello|ok|okay)[\s,.!]+(?!"# + otherAssistants + #"\b)[\w']+[\s,.!]+(?=(?:"# + commandWords + #")\b)"#,
+        pattern: #"^\s*(?:hey|hay|hi|hello|ok|okay)[\s,.!]+(?!"# + realAssistants + #"\b)[\w']+[\s,.!]+(?=(?:"# + commandWords + #")\b)"#,
         options: [.caseInsensitive])
     /// "Hey <one word>" and then a pause — most likely "Hey Hoot" misheard; Kiri then listens for the command.
     static let shortHeyPattern = try! NSRegularExpression(
@@ -237,8 +244,12 @@ final class WakeWord {
             Log.write("wake word heard")
             onHeardName?()                     // owl perks up right away
         }
-        // Keep listening in this same task: wait for a short pause after the command,
-        // or a bit longer if only "Hey Hoot" has been said so far.
+        scheduleFinish()
+    }
+
+    /// Keep listening in this same task: wait for a short pause after the command,
+    /// or a bit longer if only "Hey Hoot" has been said so far.
+    private func scheduleFinish() {
         let rest = Self.command(in: transcript)
         silence?.cancel()
         let work = DispatchWorkItem { WakeWord.shared.finishWake() }
