@@ -27,6 +27,12 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 - **Expressive:** live eyes follow your mouse and react to moods, a quick “oh!” when surprised, and a beak that talks while Kiri speaks.
 - **Light on your Mac:** 8–24 fps, GPU-drawn, and it pauses when hidden.
 
+### New in 1.6 beta (Hoot hears its name)
+
+- **"Hey Hoot" is heard much more reliably**: Kiri teaches the Mac's on-device speech recognizer the word "Hoot" with a small custom language model, built once on your Mac. Nothing leaves your Mac.
+- **More ways to wake it**: if "Hoot" is misheard ("Hey, what time is it", "Hey Google, open Safari"), Hoot still wakes for real commands. "Hey Siri" never wakes it, and plain chat like "hey, how are you" doesn't either.
+- **Spoken app names work**: *"minimise Claude desktop"* (often heard as "cloud") and *"minimise the Chrome window"* find the right app.
+
 ### New in 1.5.1 beta
 
 - **Faster "Hey Hoot"**: background noise no longer drags out the wait. Say just "Hey Hoot" and Hoot is listening for your request within 4 seconds; say the whole request and it acts about a second after you stop.
@@ -73,7 +79,7 @@ It runs your tests, gets sad when they fail, fixes the bug with Claude, and cele
 | <img src="docs/kiri-notch.png" width="420"> | <img src="docs/kiri-owl.png" width="420"> |
 
 ## Install
-1. Download **`Kiri-1.5.1.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
+1. Download **`Kiri-1.6.dmg`** from Releases, open it, and drag **Kiri** into **Applications**.
 2. First launch: **right-click Kiri → Open → Open** (it isn't notarized yet).
 3. One-time Claude setup in Terminal:
    ```bash
@@ -109,7 +115,7 @@ See **[DEMO.md](DEMO.md)** for a shot-by-shot 30-second demo video script.
 ./make-app.sh          # universal Kiri.app (Apple Silicon + Intel)
 ./make-app.sh --fast   # quicker, this Mac only
 ./make-app.sh --install  # build and move into /Applications (do this for Screen Recording)
-./make-dmg.sh          # dist/Kiri-1.5.1.dmg installer
+./make-dmg.sh          # dist/Kiri-1.6.dmg installer
 ```
 Needs Xcode command line tools (Swift 5.9+).
 
